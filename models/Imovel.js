@@ -8,7 +8,7 @@ const imovelSchema = new mongoose.Schema({
   longitude: { type: String, required: true }, 
   nivelDoMar: { type: Number, required: true },
   valorAtual: { type: String, required: true },
-  valorPrevisto: Number,
+  valorPrevisto: String,
   risco: String,
   imagem: String,
   linkLocalizacao: String
