@@ -8,19 +8,28 @@ import { fileURLToPath } from "url";
 
 const router = express.Router();
 
-// Resolver __dirname (ESM)
+// Resolver __dirname
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Helper: pega buffer de uma URL ou de arquivo local
+// ===============================
+//  ↓ Helper para buscar a imagem
+// ===============================
 async function fetchImageBuffer(source) {
+  // Caso seja URL remota
   if (/^https?:\/\//i.test(source)) {
     try {
-      const response = await axios.get(source, { responseType: "arraybuffer", timeout: 15000 });
+      const response = await axios.get(source, {
+        responseType: "arraybuffer",
+        timeout: 15000,
+      });
+
       const contentType = response.headers["content-type"] || "";
       let ext = "png";
       if (contentType.includes("jpeg")) ext = "jpeg";
+      else if (contentType.includes("jpg")) ext = "jpeg";
       else if (contentType.includes("png")) ext = "png";
+
       return { buffer: Buffer.from(response.data), ext };
     } catch (err) {
       console.warn("Erro ao baixar imagem remota:", source, err.message);
@@ -28,16 +37,23 @@ async function fetchImageBuffer(source) {
     }
   }
 
+  // Caso seja arquivo local
   try {
     let localPath = source;
+
+    // Se não for caminho absoluto, assume que está em /uploads
     if (!path.isAbsolute(localPath)) {
       localPath = path.join(process.cwd(), "uploads", source);
+
       if (source.includes("uploads")) {
         localPath = path.join(process.cwd(), source);
       }
     }
+
     const buffer = await fs.readFile(localPath);
-    const ext = path.extname(localPath).replace(".", "") || "png";
+    const extRaw = path.extname(localPath).replace(".", "").toLowerCase();
+    const ext = extRaw === "jpg" ? "jpeg" : extRaw || "png";
+
     return { buffer, ext };
   } catch (err) {
     console.warn("Erro ao ler arquivo local:", source, err.message);
@@ -45,7 +61,9 @@ async function fetchImageBuffer(source) {
   }
 }
 
-// ROTA AGORA É /api/excel
+// ===============================
+//     ROTA → /api/excel
+// ===============================
 router.get("/", async (req, res) => {
   try {
     const imoveis = await Imovel.find().lean();
@@ -56,6 +74,7 @@ router.get("/", async (req, res) => {
 
     const sheet = workbook.addWorksheet("Imóveis");
 
+    // Cabeçalho
     sheet.columns = [
       { header: "Foto", key: "foto", width: 20 },
       { header: "Título", key: "titulo", width: 30 },
@@ -70,6 +89,7 @@ router.get("/", async (req, res) => {
     sheet.getRow(1).font = { bold: true };
     sheet.autoFilter = { from: "A1", to: "H1" };
 
+    // Inserir linhas
     imoveis.forEach((item) => {
       sheet.addRow({
         foto: "",
@@ -87,18 +107,21 @@ router.get("/", async (req, res) => {
       });
     });
 
+    // Ajuste altura das linhas pra caber imagem
     const imageWidth = 120;
     const imageHeight = 90;
-    const rowHeightEmPoints = Math.round(imageHeight * 0.75);
+    const targetHeight = Math.round(imageHeight * 0.75);
 
-    const startDataRow = 2;
-    for (let i = startDataRow; i < startDataRow + imoveis.length; i++) {
-      sheet.getRow(i).height = rowHeightEmPoints;
+    const firstDataRow = 2;
+
+    for (let i = firstDataRow; i < firstDataRow + imoveis.length; i++) {
+      sheet.getRow(i).height = targetHeight;
     }
 
+    // Inserir imagens
     for (let i = 0; i < imoveis.length; i++) {
       const item = imoveis[i];
-      const rowIndex = startDataRow + i;
+      const rowIndex = firstDataRow + i;
 
       if (!item.imagem) continue;
 
@@ -109,7 +132,7 @@ router.get("/", async (req, res) => {
 
       const imageId = workbook.addImage({
         buffer,
-        extension: ext === "jpg" ? "jpeg" : ext,
+        extension: ext,
       });
 
       sheet.addImage(imageId, {
@@ -118,10 +141,13 @@ router.get("/", async (req, res) => {
       });
     }
 
+    // Bordas e alinhamento
     const totalRows = imoveis.length + 1;
+
     for (let r = 1; r <= totalRows; r++) {
       const row = sheet.getRow(r);
       row.alignment = { vertical: "middle", wrapText: true };
+
       row.eachCell({ includeEmpty: true }, (cell) => {
         cell.border = {
           top: { style: "thin" },
@@ -132,6 +158,7 @@ router.get("/", async (req, res) => {
       });
     }
 
+    // Enviar o arquivo
     res.setHeader(
       "Content-Type",
       "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
