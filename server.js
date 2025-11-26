@@ -3,8 +3,7 @@ import mongoose from "mongoose";
 import cors from "cors";
 import dotenv from "dotenv";
 import path from "path";
-import excelWithImagesRoutes from "./routes/excelWithImages.js";
-console.log(">> excelWithImagesRoutes carregado:", !!excelWithImagesRoutes);
+
 
 // Rotas
 import imoveisRoutes from "./routes/imoveis.js";
