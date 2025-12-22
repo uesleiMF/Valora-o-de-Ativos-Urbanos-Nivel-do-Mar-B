@@ -62,10 +62,11 @@ router.get("/", async (req, res) => {
     titleCell.alignment = { horizontal: "center", vertical: "middle" };
     sheet.getRow(1).height = 60;
 
-    // DATA
+    // DATA COM HORÁRIO ATUAL DE BRASÍLIA (America/Sao_Paulo)
     sheet.mergeCells("A3:H3");
     const dateCell = sheet.getCell("A3");
-    dateCell.value = `Gerado em: ${new Date().toLocaleDateString("pt-BR")} às ${new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}`;
+    const brasiliaTime = new Date().toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo" });
+    dateCell.value = `Gerado em: ${brasiliaTime}`;
     dateCell.font = { size: 12, italic: true };
     dateCell.alignment = { horizontal: "center" };
 
@@ -156,7 +157,7 @@ router.get("/", async (req, res) => {
       row.height = 90;
       row.alignment = { vertical: "middle", wrapText: true };
 
-      // Formato brasileiro perfeito: R$ 2.500.570,00
+      // Formatação: R$ 2.500.570,00
       const valorCell = sheet.getCell(`G${rowIndex}`);
       valorCell.value = valor;
       valorCell.numFmt = '"R$ "#.##0,00;[Red]"R$ "-#.##0,00';
