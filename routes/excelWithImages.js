@@ -71,7 +71,76 @@ router.get("/", async (req, res) => {
 
     const sheet = workbook.addWorksheet("Imóveis");
 
-    // === COLUNAS ===
+    // === 1. TÍTULO CENTRALIZADO GRANDE ===
+    sheet.mergeCells("A1:H2");
+    const titleCell = sheet.getCell("A1");
+    titleCell.value = "Relatório de Imóveis – Risco de Elevação do Nível do Mar";
+    titleCell.font = { size: 20, bold: true, color: { argb: "FF1565C0" } };
+    titleCell.alignment = { horizontal: "center", vertical: "middle" };
+    sheet.getRow(1).height = 50;
+
+    // === 2. CONTAGEM DOS RISCOS PARA O GRÁFICO ===
+    const riscoCount = { Baixo: 0, Médio: 0, Alto: 0 };
+    imoveis.forEach((item) => {
+      const risco = item.risco || "Baixo"; // fallback se não tiver risco definido
+      if (risco in riscoCount) riscoCount[risco]++;
+    });
+
+    const totalImoveis = imoveis.length;
+    const dataGrafico = Object.entries(riscoCount)
+      .filter(([_, count]) => count > 0)
+      .map(([risco, count]) => ({
+        risco,
+        count,
+        percentage: Math.round((count / totalImoveis) * 100),
+      }));
+
+    // === 3. GRÁFICO DE PIZZA ===
+    if (dataGrafico.length > 0) {
+      sheet.mergeCells("A4:H7"); // espaço reservado para o gráfico
+
+      const chart = {
+        type: "pie",
+        data: {
+          labels: dataGrafico.map((d) => `${d.risco} (${d.percentage}%)`),
+          datasets: [
+            {
+              data: dataGrafico.map((d) => d.count),
+              backgroundColor: ["#52C41A", "#FAAD14", "#F5222D"], // Verde, Laranja, Vermelho
+              borderColor: "#FFFFFF",
+              borderWidth: 3,
+            },
+          ],
+        },
+        options: {
+          responsive: false,
+          plugins: {
+            title: {
+              display: true,
+              text: "Distribuição dos Imóveis por Nível de Risco",
+              font: { size: 16, weight: "bold" },
+              color: "#000000",
+              padding: { top: 20, bottom: 20 },
+            },
+            legend: {
+              position: "bottom",
+              labels: { font: { size: 14 }, padding: 20 },
+            },
+          },
+        },
+      };
+
+      sheet.addChart(chart, {
+        x: 100,   // posição horizontal
+        y: 100,   // posição vertical
+        width: 520,
+        height: 380,
+      });
+    }
+
+    // === 4. TABELA COMEÇA NA LINHA 10 ===
+    const tableStartRow = 10;
+
     sheet.columns = [
       { header: "Foto", key: "foto", width: 18 },
       { header: "Título", key: "titulo", width: 35 },
@@ -83,21 +152,15 @@ router.get("/", async (req, res) => {
       { header: "Link de Localização", key: "linkLocalizacao", width: 40 },
     ];
 
-    // === CABEÇALHO ESTILIZADO ===
-    const headerRow = sheet.getRow(1);
+    // Cabeçalho da tabela
+    const headerRow = sheet.getRow(tableStartRow);
     headerRow.font = { bold: true, color: { argb: "FFFFFFFF" } };
-    headerRow.fill = {
-      type: "pattern",
-      pattern: "solid",
-      fgColor: { argb: "FF1E88E5" },
-    };
+    headerRow.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF1565C0" } };
     headerRow.alignment = { vertical: "middle", horizontal: "center", wrapText: true };
-    headerRow.height = 35;
+    headerRow.height = 40;
+    sheet.autoFilter = { from: `A${tableStartRow}`, to: `H${tableStartRow}` };
 
-    // Filtro automático
-    sheet.autoFilter = { from: "A1", to: "H1" };
-
-    // === ADICIONAR DADOS ===
+    // Adicionar os dados
     imoveis.forEach((item) => {
       sheet.addRow({
         foto: "",
@@ -115,31 +178,27 @@ router.get("/", async (req, res) => {
       });
     });
 
-    // === ESTILO DAS LINHAS DE DADOS ===
-    const startRow = 2;
-    for (let i = startRow; i < startRow + imoveis.length; i++) {
+    // Formatação da moeda brasileira
+    sheet.getColumn("valorAtual").numFmt = '_-"R$ "* #.##0,00;-"R$ "* #.##0,00';
+
+    // Estilo das linhas de dados
+    for (let i = tableStartRow + 1; i <= tableStartRow + imoveis.length; i++) {
       const row = sheet.getRow(i);
-      row.height = 90; // Altura fixa para caber a imagem
+      row.height = 90;
       row.alignment = { vertical: "middle", wrapText: true };
 
-      // Quebra de texto nas colunas longas
       row.getCell("titulo").alignment = { wrapText: true, vertical: "middle" };
       row.getCell("endereco").alignment = { wrapText: true, vertical: "middle" };
       row.getCell("linkLocalizacao").alignment = { wrapText: true };
-
-      // Centralizar números
       row.getCell("latitude").alignment = { horizontal: "center" };
       row.getCell("longitude").alignment = { horizontal: "center" };
       row.getCell("nivelDoMar").alignment = { horizontal: "center" };
     }
 
-    // === FORMATAR MOEDA BRASILEIRA (R$ 1.234.567,89) ===
-    sheet.getColumn("valorAtual").numFmt = '_-"R$ "* #.##0,00;-"R$ "* #.##0,00';
-
-    // === INSERIR IMAGENS ===
+    // Inserir imagens na tabela
     for (let i = 0; i < imoveis.length; i++) {
       const item = imoveis[i];
-      const rowIndex = startRow + i;
+      const rowIndex = tableStartRow + 1 + i;
 
       if (!item.imagem) continue;
 
@@ -147,10 +206,7 @@ router.get("/", async (req, res) => {
       if (!fetched) continue;
 
       const { buffer, ext } = fetched;
-      const imageId = workbook.addImage({
-        buffer,
-        extension: ext,
-      });
+      const imageId = workbook.addImage({ buffer, extension: ext });
 
       sheet.addImage(imageId, {
         tl: { col: 0.2, row: rowIndex - 1 + 0.1 },
@@ -159,19 +215,21 @@ router.get("/", async (req, res) => {
       });
     }
 
-    // === BORDAS LEVES EM TODA A TABELA ===
-    sheet.eachRow({ includeEmpty: false }, (row) => {
-      row.eachCell({ includeEmpty: true }, (cell) => {
-        cell.border = {
-          top: { style: "thin", color: { argb: "FFD0D0D0" } },
-          left: { style: "thin", color: { argb: "FFD0D0D0" } },
-          bottom: { style: "thin", color: { argb: "FFD0D0D0" } },
-          right: { style: "thin", color: { argb: "FFD0D0D0" } },
-        };
-      });
+    // Bordas leves na tabela
+    sheet.eachRow((row, rowNumber) => {
+      if (rowNumber >= tableStartRow) {
+        row.eachCell({ includeEmpty: true }, (cell) => {
+          cell.border = {
+            top: { style: "thin", color: { argb: "FFD0D0D0" } },
+            left: { style: "thin", color: { argb: "FFD0D0D0" } },
+            bottom: { style: "thin", color: { argb: "FFD0D0D0" } },
+            right: { style: "thin", color: { argb: "FFD0D0D0" } },
+          };
+        });
+      }
     });
 
-    // === RESPOSTA ===
+    // Resposta final
     res.setHeader(
       "Content-Type",
       "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
