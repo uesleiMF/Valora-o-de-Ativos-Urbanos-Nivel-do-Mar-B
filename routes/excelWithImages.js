@@ -104,7 +104,7 @@ router.get("/", async (req, res) => {
     sheet.getCell(`B${resumoRow}`).value = imoveis.length;
     sheet.getCell(`B${resumoRow}`).font = { bold: true };
 
-    // TABELA PRINCIPAL (começa após o resumo)
+    // TABELA PRINCIPAL
     const tableStartRow = resumoRow + 3;
 
     // Cabeçalho da tabela (negrito, sem cor azul)
@@ -119,7 +119,7 @@ router.get("/", async (req, res) => {
       "Link de Localização",
     ];
     const headerRow = sheet.getRow(tableStartRow);
-    headerRow.font = { bold: true }; // apenas negrito
+    headerRow.font = { bold: true };
     headerRow.height = 40;
     headerRow.alignment = { horizontal: "center", vertical: "middle", wrapText: true };
 
@@ -136,11 +136,13 @@ router.get("/", async (req, res) => {
     ];
 
     // Dados dos imóveis
-    const imagePromises = []; // para aguardar todas as imagens
+    const imagePromises = [];
 
     imoveis.forEach((item, index) => {
       const rowIndex = tableStartRow + 1 + index;
       const row = sheet.getRow(rowIndex);
+
+      const valor = Number(item.valorAtual) || 0;
 
       row.values = [
         "",
@@ -149,7 +151,7 @@ router.get("/", async (req, res) => {
         item.latitude ?? "",
         item.longitude ?? "",
         item.nivelDoMar ?? "",
-        Number(item.valorAtual) || 0,
+        valor,
         item.linkLocalizacao ||
           (item.latitude && item.longitude
             ? `https://www.google.com/maps?q=${item.latitude},${item.longitude}`
@@ -158,6 +160,11 @@ router.get("/", async (req, res) => {
 
       row.height = 90;
       row.alignment = { vertical: "middle", wrapText: true };
+
+      // Formatação de moeda: R$ 2.500.570,00
+      const valorCell = sheet.getCell(`G${rowIndex}`);
+      valorCell.value = valor;
+      valorCell.numFmt = '"R$ " #.##0,00;[Red]"R$ " -#.##0,00';
 
       // Preparar inserção de imagem
       if (item.imagem) {
@@ -178,27 +185,10 @@ router.get("/", async (req, res) => {
       }
     });
 
-    // Aguardar todas as imagens serem carregadas antes de enviar o arquivo
+    // Aguardar imagens
     await Promise.all(imagePromises);
 
-  // Formato de moeda brasileira inteligente (sem zeros desnecessários)
-imoveis.forEach((item, index) => {
-  const rowIndex = tableStartRow + 1 + index;
-  const valorCell = sheet.getCell(`G${rowIndex}`); // coluna G = Valor Atual (índice 7)
-  const valor = Number(item.valorAtual) || 0;
-
-  // Se não tiver centavos, mostra sem vírgula
-  if (valor % 1 === 0) {
-    valorCell.value = valor;
-    valorCell.numFmt = '_-"R$ "* #.##0;-"R$ "* #.##0';
-  } else {
-    // Se tiver centavos, mostra com 2 casas
-    valorCell.value = valor;
-    valorCell.numFmt = '_-"R$ "* #.##0,00;-"R$ "* #.##0,00';
-  }
-});
-
-    // Bordas na tabela
+    // Bordas
     sheet.eachRow((row, rowNumber) => {
       if (rowNumber >= tableStartRow) {
         row.eachCell((cell) => {
