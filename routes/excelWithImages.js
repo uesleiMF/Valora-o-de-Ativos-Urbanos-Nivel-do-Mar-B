@@ -11,6 +11,7 @@ const router = express.Router();
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+// Função para carregar imagens
 async function fetchImageBuffer(source) {
   if (!source) return null;
 
@@ -53,24 +54,61 @@ router.get("/", async (req, res) => {
 
     const sheet = workbook.addWorksheet("Imóveis");
 
-    // TÍTULO (merge só linhas 1 e 2)
+    // TÍTULO
     sheet.mergeCells("A1:H2");
     const titleCell = sheet.getCell("A1");
     titleCell.value = "Relatório de Imóveis – Risco de Elevação do Nível do Mar";
-    titleCell.font = { size: 20, bold: true, color: { argb: "FF1565C0" } };
+    titleCell.font = { size: 20, bold: true };
     titleCell.alignment = { horizontal: "center", vertical: "middle" };
     sheet.getRow(1).height = 60;
 
-    // DATA (linha 3)
+    // DATA
     sheet.mergeCells("A3:H3");
     const dateCell = sheet.getCell("A3");
     dateCell.value = `Gerado em: ${new Date().toLocaleDateString("pt-BR")} às ${new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}`;
     dateCell.font = { size: 12, italic: true };
     dateCell.alignment = { horizontal: "center" };
 
-    // CABEÇALHO DA TABELA NA LINHA 5 (espaço suficiente)
-    const headerRowNumber = 5;
-    sheet.getRow(headerRowNumber).values = [
+    // RESUMO DE RISCOS COM PORCENTAGEM
+    const riscoCount = { Baixo: 0, Médio: 0, Alto: 0 };
+    imoveis.forEach((item) => {
+      const risco = item.risco || "Baixo";
+      if (riscoCount[risco] !== undefined) riscoCount[risco]++;
+    });
+
+    sheet.mergeCells("A5:C5");
+    sheet.getCell("A5").value = "Distribuição por Nível de Risco";
+    sheet.getCell("A5").font = { bold: true, size: 14 };
+
+    // Cabeçalho do resumo
+    sheet.getCell("A6").value = "Risco";
+    sheet.getCell("B6").value = "Quantidade";
+    sheet.getCell("C6").value = "Porcentagem";
+    sheet.getRow(6).font = { bold: true };
+
+    let resumoRow = 7;
+    ["Baixo", "Médio", "Alto"].forEach((risco) => {
+      const qtd = riscoCount[risco];
+      const percent = imoveis.length > 0 ? (qtd / imoveis.length) * 100 : 0;
+      if (qtd > 0) {
+        sheet.getCell(`A${resumoRow}`).value = risco;
+        sheet.getCell(`B${resumoRow}`).value = qtd;
+        sheet.getCell(`C${resumoRow}`).value = percent / 100;
+        sheet.getCell(`C${resumoRow}`).numFmt = "0.00%";
+        resumoRow++;
+      }
+    });
+
+    // Total
+    sheet.getCell(`A${resumoRow}`).value = "Total";
+    sheet.getCell(`B${resumoRow}`).value = imoveis.length;
+    sheet.getCell(`B${resumoRow}`).font = { bold: true };
+
+    // TABELA PRINCIPAL (começa após o resumo)
+    const tableStartRow = resumoRow + 3;
+
+    // Cabeçalho da tabela (negrito, sem cor azul)
+    sheet.getRow(tableStartRow).values = [
       "Foto",
       "Título",
       "Endereço",
@@ -80,10 +118,8 @@ router.get("/", async (req, res) => {
       "Valor Atual (R$)",
       "Link de Localização",
     ];
-
-    const headerRow = sheet.getRow(headerRowNumber);
-    headerRow.font = { bold: true, color: { argb: "FFFFFFFF" } };
-    headerRow.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF1565C0" } };
+    const headerRow = sheet.getRow(tableStartRow);
+    headerRow.font = { bold: true }; // apenas negrito
     headerRow.height = 40;
     headerRow.alignment = { horizontal: "center", vertical: "middle", wrapText: true };
 
@@ -99,11 +135,15 @@ router.get("/", async (req, res) => {
       { width: 40 },
     ];
 
-    // Dados dos imóveis (começando na linha 6)
+    // Dados dos imóveis
+    const imagePromises = []; // para aguardar todas as imagens
+
     imoveis.forEach((item, index) => {
-      const row = sheet.getRow(headerRowNumber + 1 + index);
+      const rowIndex = tableStartRow + 1 + index;
+      const row = sheet.getRow(rowIndex);
+
       row.values = [
-        "", // Foto (vazia, imagem inserida depois)
+        "",
         item.titulo || "",
         item.endereco || "",
         item.latitude ?? "",
@@ -115,35 +155,38 @@ router.get("/", async (req, res) => {
             ? `https://www.google.com/maps?q=${item.latitude},${item.longitude}`
             : ""),
       ];
+
       row.height = 90;
       row.alignment = { vertical: "middle", wrapText: true };
+
+      // Preparar inserção de imagem
+      if (item.imagem) {
+        const promise = fetchImageBuffer(item.imagem).then((imgData) => {
+          if (imgData) {
+            const imageId = workbook.addImage({
+              buffer: imgData.buffer,
+              extension: imgData.ext,
+            });
+            sheet.addImage(imageId, {
+              tl: { col: 0.2, row: rowIndex - 1 },
+              ext: { width: 120, height: 80 },
+              editAs: "oneCell",
+            });
+          }
+        });
+        imagePromises.push(promise);
+      }
     });
+
+    // Aguardar todas as imagens serem carregadas antes de enviar o arquivo
+    await Promise.all(imagePromises);
 
     // Moeda brasileira
     sheet.getColumn(7).numFmt = '_-"R$ "* #.##0,00;-"R$ "* #.##0,00';
 
-    // Inserir imagens
-    imoveis.forEach(async (item, index) => {
-      if (!item.imagem) return;
-
-      const imgData = await fetchImageBuffer(item.imagem);
-      if (!imgData) return;
-
-      const imageId = workbook.addImage({
-        buffer: imgData.buffer,
-        extension: imgData.ext,
-      });
-
-      sheet.addImage(imageId, {
-        tl: { col: 0.2, row: headerRowNumber + index },
-        ext: { width: 120, height: 80 },
-        editAs: "oneCell",
-      });
-    });
-
     // Bordas na tabela
     sheet.eachRow((row, rowNumber) => {
-      if (rowNumber >= headerRowNumber) {
+      if (rowNumber >= tableStartRow) {
         row.eachCell((cell) => {
           cell.border = {
             top: { style: "thin", color: { argb: "FFD0D0D0" } },
@@ -155,6 +198,7 @@ router.get("/", async (req, res) => {
       }
     });
 
+    // Enviar arquivo
     res.setHeader(
       "Content-Type",
       "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
