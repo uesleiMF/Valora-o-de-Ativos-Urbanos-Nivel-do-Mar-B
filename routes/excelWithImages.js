@@ -181,8 +181,22 @@ router.get("/", async (req, res) => {
     // Aguardar todas as imagens serem carregadas antes de enviar o arquivo
     await Promise.all(imagePromises);
 
-    // Moeda brasileira
-    sheet.getColumn(7).numFmt = '_-"R$ "* #.##0,00;-"R$ "* #.##0,00';
+  // Formato de moeda brasileira inteligente (sem zeros desnecessários)
+imoveis.forEach((item, index) => {
+  const rowIndex = tableStartRow + 1 + index;
+  const valorCell = sheet.getCell(`G${rowIndex}`); // coluna G = Valor Atual (índice 7)
+  const valor = Number(item.valorAtual) || 0;
+
+  // Se não tiver centavos, mostra sem vírgula
+  if (valor % 1 === 0) {
+    valorCell.value = valor;
+    valorCell.numFmt = '_-"R$ "* #.##0;-"R$ "* #.##0';
+  } else {
+    // Se tiver centavos, mostra com 2 casas
+    valorCell.value = valor;
+    valorCell.numFmt = '_-"R$ "* #.##0,00;-"R$ "* #.##0,00';
+  }
+});
 
     // Bordas na tabela
     sheet.eachRow((row, rowNumber) => {
