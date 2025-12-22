@@ -11,11 +11,9 @@ const router = express.Router();
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Função para carregar imagens (local ou remota)
 async function fetchImageBuffer(source) {
   if (!source) return null;
 
-  // URL remota
   if (/^https?:\/\//i.test(source)) {
     try {
       const response = await axios.get(source, { responseType: "arraybuffer", timeout: 15000 });
@@ -24,27 +22,23 @@ async function fetchImageBuffer(source) {
       if (contentType.includes("jpeg") || contentType.includes("jpg")) ext = "jpeg";
       return { buffer: Buffer.from(response.data), ext };
     } catch (err) {
-      console.warn("Erro ao carregar imagem remota:", source);
+      console.warn("Erro imagem remota:", source);
       return null;
     }
   }
 
-  // Arquivo local
   try {
     let localPath = path.join(process.cwd(), "uploads", path.basename(source));
-    if (source.includes("uploads")) {
-      localPath = path.join(process.cwd(), source);
-    }
+    if (source.includes("uploads")) localPath = path.join(process.cwd(), source);
     const buffer = await fs.readFile(localPath);
     const ext = path.extname(localPath).slice(1).toLowerCase() === "jpg" ? "jpeg" : path.extname(localPath).slice(1) || "png";
     return { buffer, ext };
   } catch (err) {
-    console.warn("Erro ao ler imagem local:", source);
+    console.warn("Erro imagem local:", source);
     return null;
   }
 }
 
-// ROTA /api/excel
 router.get("/", async (req, res) => {
   try {
     const imoveis = await Imovel.find().lean();
@@ -59,80 +53,81 @@ router.get("/", async (req, res) => {
 
     const sheet = workbook.addWorksheet("Imóveis");
 
-    // === TÍTULO NO TOPO (opcional, bonito) ===
+    // TÍTULO (merge só linhas 1 e 2)
     sheet.mergeCells("A1:H2");
     const titleCell = sheet.getCell("A1");
     titleCell.value = "Relatório de Imóveis – Risco de Elevação do Nível do Mar";
-    titleCell.font = { size: 18, bold: true, color: { argb: "FF1565C0" } };
+    titleCell.font = { size: 20, bold: true, color: { argb: "FF1565C0" } };
     titleCell.alignment = { horizontal: "center", vertical: "middle" };
-    sheet.getRow(1).height = 50;
+    sheet.getRow(1).height = 60;
 
-    // === DATA ===
+    // DATA (linha 3)
     sheet.mergeCells("A3:H3");
     const dateCell = sheet.getCell("A3");
     dateCell.value = `Gerado em: ${new Date().toLocaleDateString("pt-BR")} às ${new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}`;
     dateCell.font = { size: 12, italic: true };
     dateCell.alignment = { horizontal: "center" };
 
-    // === TABELA PRINCIPAL (exatamente como você tinha antes) ===
-    const tableStartRow = 5; // começa na linha 5 para dar espaço ao título e data
-
-    sheet.columns = [
-      { header: "Foto", key: "foto", width: 18 },
-      { header: "Título", key: "titulo", width: 35 },
-      { header: "Endereço", key: "endereco", width: 45 },
-      { header: "Latitude", key: "latitude", width: 15 },
-      { header: "Longitude", key: "longitude", width: 15 },
-      { header: "Nível do Mar (m)", key: "nivelDoMar", width: 18 },
-      { header: "Valor Atual (R$)", key: "valorAtual", width: 22 },
-      { header: "Link de Localização", key: "linkLocalizacao", width: 40 },
+    // CABEÇALHO DA TABELA NA LINHA 5 (espaço suficiente)
+    const headerRowNumber = 5;
+    sheet.getRow(headerRowNumber).values = [
+      "Foto",
+      "Título",
+      "Endereço",
+      "Latitude",
+      "Longitude",
+      "Nível do Mar (m)",
+      "Valor Atual (R$)",
+      "Link de Localização",
     ];
 
-    // Cabeçalho da tabela
-    const headerRow = sheet.getRow(tableStartRow);
+    const headerRow = sheet.getRow(headerRowNumber);
     headerRow.font = { bold: true, color: { argb: "FFFFFFFF" } };
     headerRow.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF1565C0" } };
     headerRow.height = 40;
     headerRow.alignment = { horizontal: "center", vertical: "middle", wrapText: true };
 
-    // Dados
-    imoveis.forEach((item) => {
-      sheet.addRow({
-        foto: "",
-        titulo: item.titulo || "",
-        endereco: item.endereco || "",
-        latitude: item.latitude ?? "",
-        longitude: item.longitude ?? "",
-        nivelDoMar: item.nivelDoMar ?? "",
-        valorAtual: Number(item.valorAtual) || 0,
-        linkLocalizacao:
-          item.linkLocalizacao ||
+    // Larguras das colunas
+    sheet.columns = [
+      { width: 18 },
+      { width: 35 },
+      { width: 45 },
+      { width: 15 },
+      { width: 15 },
+      { width: 18 },
+      { width: 22 },
+      { width: 40 },
+    ];
+
+    // Dados dos imóveis (começando na linha 6)
+    imoveis.forEach((item, index) => {
+      const row = sheet.getRow(headerRowNumber + 1 + index);
+      row.values = [
+        "", // Foto (vazia, imagem inserida depois)
+        item.titulo || "",
+        item.endereco || "",
+        item.latitude ?? "",
+        item.longitude ?? "",
+        item.nivelDoMar ?? "",
+        Number(item.valorAtual) || 0,
+        item.linkLocalizacao ||
           (item.latitude && item.longitude
             ? `https://www.google.com/maps?q=${item.latitude},${item.longitude}`
             : ""),
-      });
+      ];
+      row.height = 90;
+      row.alignment = { vertical: "middle", wrapText: true };
     });
 
     // Moeda brasileira
-    sheet.getColumn("valorAtual").numFmt = '_-"R$ "* #.##0,00;-"R$ "* #.##0,00';
+    sheet.getColumn(7).numFmt = '_-"R$ "* #.##0,00;-"R$ "* #.##0,00';
 
-    // Altura das linhas e quebra de texto
-    for (let i = 0; i < imoveis.length; i++) {
-      const row = sheet.getRow(tableStartRow + 1 + i);
-      row.height = 90;
-      row.alignment = { vertical: "middle", wrapText: true };
-      row.getCell("titulo").alignment = { wrapText: true };
-      row.getCell("endereco").alignment = { wrapText: true };
-      row.getCell("linkLocalizacao").alignment = { wrapText: true };
-    }
-
-    // Inserir imagens na coluna Foto
-    for (let i = 0; i < imoveis.length; i++) {
-      const item = imoveis[i];
-      if (!item.imagem) continue;
+    // Inserir imagens
+    imoveis.forEach(async (item, index) => {
+      if (!item.imagem) return;
 
       const imgData = await fetchImageBuffer(item.imagem);
-      if (!imgData) continue;
+      if (!imgData) return;
 
       const imageId = workbook.addImage({
         buffer: imgData.buffer,
@@ -140,15 +135,15 @@ router.get("/", async (req, res) => {
       });
 
       sheet.addImage(imageId, {
-        tl: { col: 0.2, row: tableStartRow + i },
+        tl: { col: 0.2, row: headerRowNumber + index },
         ext: { width: 120, height: 80 },
         editAs: "oneCell",
       });
-    }
+    });
 
-    // Bordas
+    // Bordas na tabela
     sheet.eachRow((row, rowNumber) => {
-      if (rowNumber >= tableStartRow) {
+      if (rowNumber >= headerRowNumber) {
         row.eachCell((cell) => {
           cell.border = {
             top: { style: "thin", color: { argb: "FFD0D0D0" } },
@@ -160,7 +155,6 @@ router.get("/", async (req, res) => {
       }
     });
 
-    // Enviar
     res.setHeader(
       "Content-Type",
       "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
@@ -174,7 +168,7 @@ router.get("/", async (req, res) => {
     res.end();
   } catch (err) {
     console.error("Erro ao gerar Excel:", err);
-    res.status(500).json({ error: "Erro ao gerar o relatório." });
+    res.status(500).json({ error: "Erro ao gerar relatório." });
   }
 });
 
