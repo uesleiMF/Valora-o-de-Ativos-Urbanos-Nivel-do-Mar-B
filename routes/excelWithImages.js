@@ -80,7 +80,6 @@ router.get("/", async (req, res) => {
     sheet.getCell("A5").value = "Distribuição por Nível de Risco";
     sheet.getCell("A5").font = { bold: true, size: 14 };
 
-    // Cabeçalho do resumo
     sheet.getCell("A6").value = "Risco";
     sheet.getCell("B6").value = "Quantidade";
     sheet.getCell("C6").value = "Porcentagem";
@@ -99,7 +98,6 @@ router.get("/", async (req, res) => {
       }
     });
 
-    // Total
     sheet.getCell(`A${resumoRow}`).value = "Total";
     sheet.getCell(`B${resumoRow}`).value = imoveis.length;
     sheet.getCell(`B${resumoRow}`).font = { bold: true };
@@ -107,7 +105,6 @@ router.get("/", async (req, res) => {
     // TABELA PRINCIPAL
     const tableStartRow = resumoRow + 3;
 
-    // Cabeçalho da tabela (negrito, sem cor azul)
     sheet.getRow(tableStartRow).values = [
       "Foto",
       "Título",
@@ -123,7 +120,6 @@ router.get("/", async (req, res) => {
     headerRow.height = 40;
     headerRow.alignment = { horizontal: "center", vertical: "middle", wrapText: true };
 
-    // Larguras das colunas
     sheet.columns = [
       { width: 18 },
       { width: 35 },
@@ -135,7 +131,6 @@ router.get("/", async (req, res) => {
       { width: 40 },
     ];
 
-    // Dados dos imóveis
     const imagePromises = [];
 
     imoveis.forEach((item, index) => {
@@ -161,12 +156,12 @@ router.get("/", async (req, res) => {
       row.height = 90;
       row.alignment = { vertical: "middle", wrapText: true };
 
-      // Formatação de moeda: R$ 2.500.570,00
+      // Formato brasileiro perfeito: R$ 2.500.570,00
       const valorCell = sheet.getCell(`G${rowIndex}`);
       valorCell.value = valor;
-      valorCell.numFmt = '"R$ " #.##0,00;[Red]"R$ " -#.##0,00';
+      valorCell.numFmt = '"R$ "#.##0,00;[Red]"R$ "-#.##0,00';
 
-      // Preparar inserção de imagem
+      // Inserção de imagem
       if (item.imagem) {
         const promise = fetchImageBuffer(item.imagem).then((imgData) => {
           if (imgData) {
@@ -185,7 +180,6 @@ router.get("/", async (req, res) => {
       }
     });
 
-    // Aguardar imagens
     await Promise.all(imagePromises);
 
     // Bordas
@@ -202,7 +196,6 @@ router.get("/", async (req, res) => {
       }
     });
 
-    // Enviar arquivo
     res.setHeader(
       "Content-Type",
       "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
