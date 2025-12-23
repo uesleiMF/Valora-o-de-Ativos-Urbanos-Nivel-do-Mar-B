@@ -63,22 +63,30 @@ app.get("/health", (req, res) => {
 });
 
 /* ===============================
-   CONEXÃO MONGODB
+   CONEXÃO MONGODB + START SERVER
 ================================ */
+const PORT = process.env.PORT || 5000;
 const MONGO =
   process.env.MONGO_URI || "mongodb://127.0.0.1:27017/mernbelm";
 
 mongoose
   .connect(MONGO)
-  .then(() => console.log("✅ MongoDB conectado"))
-  .catch((err) =>
-    console.log("❌ Erro MongoDB:", err.message)
-  );
+  .then(() => {
+    console.log("✅ MongoDB conectado");
+
+    app.listen(PORT, () => {
+      console.log(`🚀 Servidor rodando na porta ${PORT}`);
+    });
+  })
+  .catch((err) => {
+    console.error("❌ Erro ao conectar no MongoDB:", err.message);
+    process.exit(1);
+  });
 
 /* ===============================
    START SERVER
 ================================ */
-const PORT = process.env.PORT || 5000;
+
 app.listen(PORT, () => {
   console.log(`🚀 Servidor rodando na porta ${PORT}`);
 });
