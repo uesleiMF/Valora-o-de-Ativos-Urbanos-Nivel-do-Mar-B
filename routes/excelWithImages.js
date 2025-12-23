@@ -11,41 +11,50 @@ const router = express.Router();
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+// ===============================
 // Função para carregar imagens
+// ===============================
 async function fetchImageBuffer(source) {
   if (!source) return null;
 
   if (/^https?:\/\//i.test(source)) {
     try {
-      const response = await axios.get(source, { responseType: "arraybuffer", timeout: 15000 });
+      const response = await axios.get(source, {
+        responseType: "arraybuffer",
+        timeout: 15000,
+      });
       const contentType = response.headers["content-type"] || "image/png";
-      let ext = "png";
-      if (contentType.includes("jpeg") || contentType.includes("jpg")) ext = "jpeg";
+      const ext = contentType.includes("jpeg") || contentType.includes("jpg")
+        ? "jpeg"
+        : "png";
       return { buffer: Buffer.from(response.data), ext };
-    } catch (err) {
-      console.warn("Erro imagem remota:", source);
+    } catch {
       return null;
     }
   }
 
   try {
     let localPath = path.join(process.cwd(), "uploads", path.basename(source));
-    if (source.includes("uploads")) localPath = path.join(process.cwd(), source);
+    if (source.includes("uploads")) {
+      localPath = path.join(process.cwd(), source);
+    }
     const buffer = await fs.readFile(localPath);
-    const ext = path.extname(localPath).slice(1).toLowerCase() === "jpg" ? "jpeg" : path.extname(localPath).slice(1) || "png";
+    const ext = path.extname(localPath).replace(".", "") || "png";
     return { buffer, ext };
-  } catch (err) {
-    console.warn("Erro imagem local:", source);
+  } catch {
     return null;
   }
 }
 
+// ===============================
+// ROTA DE EXPORTAÇÃO
+// ===============================
 router.get("/", async (req, res) => {
   try {
     const imoveis = await Imovel.find().lean();
 
-    if (imoveis.length === 0) {
-      return res.status(404).json({ error: "Nenhum imóvel cadastrado." });
+    if (!imoveis.length) {
+      return res.status(404).json({ error: "Nenhum imóvel encontrado." });
     }
 
     const workbook = new ExcelJS.Workbook();
@@ -54,7 +63,9 @@ router.get("/", async (req, res) => {
 
     const sheet = workbook.addWorksheet("Imóveis");
 
+    // ===============================
     // TÍTULO
+    // ===============================
     sheet.mergeCells("A1:H2");
     const titleCell = sheet.getCell("A1");
     titleCell.value = "Relatório de Imóveis – Risco de Elevação do Nível do Mar";
@@ -62,49 +73,21 @@ router.get("/", async (req, res) => {
     titleCell.alignment = { horizontal: "center", vertical: "middle" };
     sheet.getRow(1).height = 60;
 
-    // DATA COM HORÁRIO ATUAL DE BRASÍLIA (America/Sao_Paulo)
+    // ===============================
+    // DATA BRASIL (SP)
+    // ===============================
     sheet.mergeCells("A3:H3");
-    const dateCell = sheet.getCell("A3");
-    const brasiliaTime = new Date().toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo" });
-    dateCell.value = `Gerado em: ${brasiliaTime}`;
-    dateCell.font = { size: 12, italic: true };
-    dateCell.alignment = { horizontal: "center" };
+    sheet.getCell("A3").value = `Gerado em: ${new Date().toLocaleString(
+      "pt-BR",
+      { timeZone: "America/Sao_Paulo" }
+    )}`;
+    sheet.getCell("A3").alignment = { horizontal: "center" };
+    sheet.getCell("A3").font = { italic: true };
 
-    // RESUMO DE RISCOS COM PORCENTAGEM
-    const riscoCount = { Baixo: 0, Médio: 0, Alto: 0 };
-    imoveis.forEach((item) => {
-      const risco = item.risco || "Baixo";
-      if (riscoCount[risco] !== undefined) riscoCount[risco]++;
-    });
-
-    sheet.mergeCells("A5:C5");
-    sheet.getCell("A5").value = "Distribuição por Nível de Risco";
-    sheet.getCell("A5").font = { bold: true, size: 14 };
-
-    sheet.getCell("A6").value = "Risco";
-    sheet.getCell("B6").value = "Quantidade";
-    sheet.getCell("C6").value = "Porcentagem";
-    sheet.getRow(6).font = { bold: true };
-
-    let resumoRow = 7;
-    ["Baixo", "Médio", "Alto"].forEach((risco) => {
-      const qtd = riscoCount[risco];
-      const percent = imoveis.length > 0 ? (qtd / imoveis.length) * 100 : 0;
-      if (qtd > 0) {
-        sheet.getCell(`A${resumoRow}`).value = risco;
-        sheet.getCell(`B${resumoRow}`).value = qtd;
-        sheet.getCell(`C${resumoRow}`).value = percent / 100;
-        sheet.getCell(`C${resumoRow}`).numFmt = "0.00%";
-        resumoRow++;
-      }
-    });
-
-    sheet.getCell(`A${resumoRow}`).value = "Total";
-    sheet.getCell(`B${resumoRow}`).value = imoveis.length;
-    sheet.getCell(`B${resumoRow}`).font = { bold: true };
-
-    // TABELA PRINCIPAL
-    const tableStartRow = resumoRow + 3;
+    // ===============================
+    // CABEÇALHO DA TABELA
+    // ===============================
+    const tableStartRow = 6;
 
     sheet.getRow(tableStartRow).values = [
       "Foto",
@@ -114,12 +97,17 @@ router.get("/", async (req, res) => {
       "Longitude",
       "Nível do Mar (m)",
       "Valor Atual (R$)",
-      "Link de Localização",
+      "Link",
     ];
+
     const headerRow = sheet.getRow(tableStartRow);
     headerRow.font = { bold: true };
+    headerRow.alignment = {
+      horizontal: "center",
+      vertical: "middle",
+      wrapText: true,
+    };
     headerRow.height = 40;
-    headerRow.alignment = { horizontal: "center", vertical: "middle", wrapText: true };
 
     sheet.columns = [
       { width: 18 },
@@ -132,6 +120,9 @@ router.get("/", async (req, res) => {
       { width: 40 },
     ];
 
+    // ===============================
+    // DADOS
+    // ===============================
     const imagePromises = [];
 
     imoveis.forEach((item, index) => {
@@ -157,18 +148,22 @@ router.get("/", async (req, res) => {
       row.height = 90;
       row.alignment = { vertical: "middle", wrapText: true };
 
-      // Formatação: R$ 2.500.570,00
+      // ===============================
+      // 💰 FORMATO REAL BRASILEIRO CORRETO
+      // ===============================
       const valorCell = sheet.getCell(`G${rowIndex}`);
       valorCell.value = valor;
       valorCell.numFmt = '"R$ "#.##0,00;[Red]"R$ "-#.##0,00';
 
-      // Inserção de imagem
+      // ===============================
+      // IMAGEM
+      // ===============================
       if (item.imagem) {
-        const promise = fetchImageBuffer(item.imagem).then((imgData) => {
-          if (imgData) {
+        const promise = fetchImageBuffer(item.imagem).then((img) => {
+          if (img) {
             const imageId = workbook.addImage({
-              buffer: imgData.buffer,
-              extension: imgData.ext,
+              buffer: img.buffer,
+              extension: img.ext,
             });
             sheet.addImage(imageId, {
               tl: { col: 0.2, row: rowIndex - 1 },
@@ -183,33 +178,39 @@ router.get("/", async (req, res) => {
 
     await Promise.all(imagePromises);
 
-    // Bordas
+    // ===============================
+    // BORDAS
+    // ===============================
     sheet.eachRow((row, rowNumber) => {
       if (rowNumber >= tableStartRow) {
         row.eachCell((cell) => {
           cell.border = {
-            top: { style: "thin", color: { argb: "FFD0D0D0" } },
-            left: { style: "thin", color: { argb: "FFD0D0D0" } },
-            bottom: { style: "thin", color: { argb: "FFD0D0D0" } },
-            right: { style: "thin", color: { argb: "FFD0D0D0" } },
+            top: { style: "thin" },
+            left: { style: "thin" },
+            bottom: { style: "thin" },
+            right: { style: "thin" },
           };
         });
       }
     });
 
+    // ===============================
+    // DOWNLOAD
+    // ===============================
     res.setHeader(
       "Content-Type",
       "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     );
     res.setHeader(
       "Content-Disposition",
-      "attachment; filename=imoveis_com_fotos.xlsx"
+      "attachment; filename=imoveis.xlsx"
     );
 
     await workbook.xlsx.write(res);
     res.end();
+
   } catch (err) {
-    console.error("Erro ao gerar Excel:", err);
+    console.error(err);
     res.status(500).json({ error: "Erro ao gerar relatório." });
   }
 });
