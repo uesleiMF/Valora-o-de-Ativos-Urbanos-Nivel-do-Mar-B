@@ -13,7 +13,7 @@ dotenv.config();
 const app = express();
 
 /* ===============================
-   CORS (OK PARA RENDER + DOWNLOAD)
+   CORS (RENDER + DOWNLOAD)
 ================================ */
 app.use(
   cors({
@@ -35,15 +35,14 @@ app.use(express.json());
 app.use("/uploads", express.static(path.join(path.resolve(), "uploads")));
 
 /* ===============================
-   ROTAS DO SISTEMA
+   ROTAS
 ================================ */
 app.use("/api/imoveis", imoveisRoutes);
 app.use("/api/climate", climateRoutes);
 app.use("/api/excel", excelWithImagesRoutes);
 
 /* ===============================
-   ROTAS PING / HEALTH (UPTIMEROBOT)
-   ⚠️ NÃO PROTEGER COM TOKEN
+   HEALTH / PING
 ================================ */
 app.get("/", (req, res) => {
   res.status(200).json({
@@ -63,7 +62,7 @@ app.get("/health", (req, res) => {
 });
 
 /* ===============================
-   CONEXÃO MONGODB + START SERVER
+   MONGODB + START SERVER
 ================================ */
 const PORT = process.env.PORT || 5000;
 const MONGO =
@@ -82,11 +81,3 @@ mongoose
     console.error("❌ Erro ao conectar no MongoDB:", err.message);
     process.exit(1);
   });
-
-/* ===============================
-   START SERVER
-================================ */
-
-app.listen(PORT, () => {
-  console.log(`🚀 Servidor rodando na porta ${PORT}`);
-});
