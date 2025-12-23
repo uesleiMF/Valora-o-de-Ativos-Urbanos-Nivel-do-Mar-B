@@ -12,41 +12,73 @@ import excelWithImagesRoutes from "./routes/excelWithImages.js";
 dotenv.config();
 const app = express();
 
-// ===============================
-//   CORS CORRIGIDO (OBRIGATÓRIO)
-// ===============================
+/* ===============================
+   CORS (OK PARA RENDER + DOWNLOAD)
+================================ */
 app.use(
   cors({
     origin: "*",
     methods: ["GET", "POST", "PUT", "DELETE"],
     allowedHeaders: ["Content-Type", "Authorization"],
-    exposedHeaders: ["Content-Disposition"], // <-- NECESSÁRIO PARA DOWNLOAD
+    exposedHeaders: ["Content-Disposition"],
   })
 );
 
-// Configurações básicas
+/* ===============================
+   CONFIGURAÇÕES BÁSICAS
+================================ */
 app.use(express.json());
 
-// Pasta pública para imagens enviadas
+/* ===============================
+   PASTA PÚBLICA (UPLOADS)
+================================ */
 app.use("/uploads", express.static(path.join(path.resolve(), "uploads")));
 
-// Rotas principais do sistema
+/* ===============================
+   ROTAS DO SISTEMA
+================================ */
 app.use("/api/imoveis", imoveisRoutes);
 app.use("/api/climate", climateRoutes);
 app.use("/api/excel", excelWithImagesRoutes);
 
-// Rota simples de teste
-app.get("/", (req, res) => res.json({ status: "Servidor online" }));
+/* ===============================
+   ROTAS PING / HEALTH (UPTIMEROBOT)
+   ⚠️ NÃO PROTEGER COM TOKEN
+================================ */
+app.get("/", (req, res) => {
+  res.status(200).json({
+    status: true,
+    message: "Servidor online e funcionando",
+    timestamp: new Date().toISOString(),
+  });
+});
 
-// Conexão MongoDB
-const MONGO = process.env.MONGO_URI || "mongodb://127.0.0.1:27017/mernbelm";
+app.get("/health", (req, res) => {
+  res.status(200).json({
+    status: "ok",
+    uptime: process.uptime(),
+    memory: process.memoryUsage().rss,
+    timestamp: new Date().toISOString(),
+  });
+});
+
+/* ===============================
+   CONEXÃO MONGODB
+================================ */
+const MONGO =
+  process.env.MONGO_URI || "mongodb://127.0.0.1:27017/mernbelm";
 
 mongoose
-  .connect(MONGO, { useNewUrlParser: true, useUnifiedTopology: true })
+  .connect(MONGO)
   .then(() => console.log("✅ MongoDB conectado"))
-  .catch((err) => console.log("❌ Erro MongoDB:", err.message));
+  .catch((err) =>
+    console.log("❌ Erro MongoDB:", err.message)
+  );
 
+/* ===============================
+   START SERVER
+================================ */
 const PORT = process.env.PORT || 5000;
-app.listen(PORT, () =>
-  console.log(`🚀 Servidor rodando na porta ${PORT}`)
-);
+app.listen(PORT, () => {
+  console.log(`🚀 Servidor rodando na porta ${PORT}`);
+});
