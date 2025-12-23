@@ -70,7 +70,7 @@ router.get("/", async (req, res) => {
     dateCell.font = { size: 12, italic: true };
     dateCell.alignment = { horizontal: "center" };
 
-    // RESUMO DE RISCOS
+    // RESUMO DE RISCOS COM PORCENTAGEM
     const riscoCount = { Baixo: 0, Médio: 0, Alto: 0 };
     imoveis.forEach((item) => {
       const risco = item.risco || "Baixo";
@@ -157,13 +157,13 @@ router.get("/", async (req, res) => {
       row.height = 90;
       row.alignment = { vertical: "middle", wrapText: true };
 
-      // FORMATO BRASILEIRO CORRETO: R$ 456.000,00
+      // FORMATO DE MOEDA BRASILEIRO (funciona bem no Microsoft Excel)
       const valorCell = sheet.getCell(`G${rowIndex}`);
       valorCell.value = valor;
-      valorCell.numFmt = '[$$-pt-BR] #.##0,00';
+      valorCell.numFmt = '"R$ "#.##0,00;[Red]"R$ "-#.##0,00';
       valorCell.alignment = { horizontal: "right" };
 
-      // Imagem
+      // Inserção de imagem
       if (item.imagem) {
         const promise = fetchImageBuffer(item.imagem).then((imgData) => {
           if (imgData) {
@@ -198,13 +198,14 @@ router.get("/", async (req, res) => {
       }
     });
 
+    // CABEÇALHOS PARA ABRIR DIRETO NO EXCEL
     res.setHeader(
       "Content-Type",
       "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     );
     res.setHeader(
       "Content-Disposition",
-      "attachment; filename=imoveis_com_fotos.xlsx"
+      "attachment; filename*=UTF-8''relatorio_imoveis_com_fotos.xlsx"
     );
 
     await workbook.xlsx.write(res);
