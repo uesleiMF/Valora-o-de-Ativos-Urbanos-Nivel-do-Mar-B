@@ -160,7 +160,7 @@ router.get("/", async (req, res) => {
       // FORMATO BRASILEIRO CORRETO: R$ 456.000,00
       const valorCell = sheet.getCell(`G${rowIndex}`);
       valorCell.value = valor;
-      valorCell.numFmt = '"R$ "#.##0,00;[Red]"R$ "-#.##0,00';
+      valorCell.numFmt = '"R$ " #.##0,00';
       valorCell.alignment = { horizontal: "right" };
 
       // Imagem
