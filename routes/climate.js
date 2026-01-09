@@ -4,11 +4,18 @@ const router = express.Router();
 router.get("/belem", (req, res) => {
   res.json({
     cidade: "Belém",
-    nivelDoMarAtual: 4.1,
-    projecao2030: 4.5,
-    projecao2050: 5.0,
+    nivelAtualCm: 0,
+    projecao2030Cm: {
+      min: 8,
+      max: 15
+    },
+    projecao2050Cm: {
+      min: 15,
+      max: 35
+    },
     risco: "Alto",
-    fonte: "Climate Central / IPCC"
+    fonte: "IPCC AR6 / NASA / NOAA",
+    dataAtualizacao: "2025-01-05"
   });
 });
 
