@@ -11,23 +11,19 @@ const router = express.Router();
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// ===============================
-// FUNÇÃO PARA CARREGAR IMAGENS
-// ===============================
+// Função para carregar imagens
 async function fetchImageBuffer(source) {
   if (!source) return null;
 
   if (/^https?:\/\//i.test(source)) {
     try {
-      const response = await axios.get(source, {
-        responseType: "arraybuffer",
-        timeout: 15000,
-      });
+      const response = await axios.get(source, { responseType: "arraybuffer", timeout: 15000 });
       const contentType = response.headers["content-type"] || "image/png";
       let ext = "png";
       if (contentType.includes("jpeg") || contentType.includes("jpg")) ext = "jpeg";
       return { buffer: Buffer.from(response.data), ext };
-    } catch {
+    } catch (err) {
+      console.warn("Erro imagem remota:", source);
       return null;
     }
   }
@@ -36,81 +32,78 @@ async function fetchImageBuffer(source) {
     let localPath = path.join(process.cwd(), "uploads", path.basename(source));
     if (source.includes("uploads")) localPath = path.join(process.cwd(), source);
     const buffer = await fs.readFile(localPath);
-    const ext =
-      path.extname(localPath).slice(1).toLowerCase() === "jpg"
-        ? "jpeg"
-        : path.extname(localPath).slice(1) || "png";
+    const ext = path.extname(localPath).slice(1).toLowerCase() === "jpg" ? "jpeg" : path.extname(localPath).slice(1) || "png";
     return { buffer, ext };
-  } catch {
+  } catch (err) {
+    console.warn("Erro imagem local:", source);
     return null;
   }
 }
 
-// ===============================
-// ROTA EXCEL
-// ===============================
 router.get("/", async (req, res) => {
   try {
     const imoveis = await Imovel.find().lean();
-    if (!imoveis.length) {
+
+    if (imoveis.length === 0) {
       return res.status(404).json({ error: "Nenhum imóvel cadastrado." });
     }
-
-    // ===============================
-    // BUSCAR DADOS CLIMÁTICOS
-    // ===============================
-    const climaRes = await axios.get(
-      "https://valora-o-de-ativos-urbanos-nivel-do-mar-b.onrender.com/api/climate/belem"
-    );
-    const clima = climaRes.data;
 
     const workbook = new ExcelJS.Workbook();
     workbook.creator = "Valora Ativos Urbanos";
     workbook.created = new Date();
 
-    // =====================================================
-    // ABA 1 — IMÓVEIS (SEU CÓDIGO ORIGINAL)
-    // =====================================================
     const sheet = workbook.addWorksheet("Imóveis");
 
+    // TÍTULO
     sheet.mergeCells("A1:H2");
-    sheet.getCell("A1").value =
-      "Relatório de Imóveis – Risco de Elevação do Nível do Mar";
-    sheet.getCell("A1").font = { size: 20, bold: true };
-    sheet.getCell("A1").alignment = { horizontal: "center", vertical: "middle" };
+    const titleCell = sheet.getCell("A1");
+    titleCell.value = "Relatório de Imóveis – Risco de Elevação do Nível do Mar";
+    titleCell.font = { size: 20, bold: true };
+    titleCell.alignment = { horizontal: "center", vertical: "middle" };
     sheet.getRow(1).height = 60;
 
+    // DATA E HORÁRIO DE BRASÍLIA
     sheet.mergeCells("A3:H3");
-    sheet.getCell("A3").value = `Gerado em: ${new Date().toLocaleString(
-      "pt-BR",
-      { timeZone: "America/Sao_Paulo" }
-    )}`;
-    sheet.getCell("A3").alignment = { horizontal: "center" };
+    const dateCell = sheet.getCell("A3");
+    const brasiliaTime = new Date().toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo" });
+    dateCell.value = `Gerado em: ${brasiliaTime}`;
+    dateCell.font = { size: 12, italic: true };
+    dateCell.alignment = { horizontal: "center" };
 
+    // RESUMO DE RISCOS COM PORCENTAGEM
     const riscoCount = { Baixo: 0, Médio: 0, Alto: 0 };
-    imoveis.forEach((i) => riscoCount[i.risco || "Baixo"]++);
+    imoveis.forEach((item) => {
+      const risco = item.risco || "Baixo";
+      if (riscoCount[risco] !== undefined) riscoCount[risco]++;
+    });
 
     sheet.mergeCells("A5:C5");
     sheet.getCell("A5").value = "Distribuição por Nível de Risco";
     sheet.getCell("A5").font = { bold: true, size: 14 };
 
-    sheet.getRow(6).values = ["Risco", "Quantidade", "Porcentagem"];
+    sheet.getCell("A6").value = "Risco";
+    sheet.getCell("B6").value = "Quantidade";
+    sheet.getCell("C6").value = "Porcentagem";
     sheet.getRow(6).font = { bold: true };
 
     let resumoRow = 7;
-    ["Baixo", "Médio", "Alto"].forEach((r) => {
-      const qtd = riscoCount[r];
+    ["Baixo", "Médio", "Alto"].forEach((risco) => {
+      const qtd = riscoCount[risco];
+      const percent = imoveis.length > 0 ? (qtd / imoveis.length) * 100 : 0;
       if (qtd > 0) {
-        sheet.getRow(resumoRow).values = [
-          r,
-          qtd,
-          qtd / imoveis.length,
-        ];
+        sheet.getCell(`A${resumoRow}`).value = risco;
+        sheet.getCell(`B${resumoRow}`).value = qtd;
+        sheet.getCell(`C${resumoRow}`).value = percent / 100;
         sheet.getCell(`C${resumoRow}`).numFmt = "0.00%";
         resumoRow++;
       }
     });
 
+    sheet.getCell(`A${resumoRow}`).value = "Total";
+    sheet.getCell(`B${resumoRow}`).value = imoveis.length;
+    sheet.getCell(`B${resumoRow}`).font = { bold: true };
+
+    // TABELA PRINCIPAL
     const tableStartRow = resumoRow + 3;
 
     sheet.getRow(tableStartRow).values = [
@@ -119,11 +112,14 @@ router.get("/", async (req, res) => {
       "Endereço",
       "Latitude",
       "Longitude",
-      "Nível do Mar (cm)",
+      "Nível do Mar (m)",
       "Valor Atual (R$)",
-      "Link",
+      "Link de Localização",
     ];
-    sheet.getRow(tableStartRow).font = { bold: true };
+    const headerRow = sheet.getRow(tableStartRow);
+    headerRow.font = { bold: true };
+    headerRow.height = 40;
+    headerRow.alignment = { horizontal: "center", vertical: "middle", wrapText: true };
 
     sheet.columns = [
       { width: 18 },
@@ -140,107 +136,83 @@ router.get("/", async (req, res) => {
 
     imoveis.forEach((item, index) => {
       const rowIndex = tableStartRow + 1 + index;
-      sheet.getRow(rowIndex).values = [
+      const row = sheet.getRow(rowIndex);
+
+      const valor = Number(item.valorAtual) || 0;
+
+      row.values = [
         "",
-        item.titulo,
-        item.endereco,
-        item.latitude,
-        item.longitude,
-        item.nivelDoMar,
-        item.valorAtual,
+        item.titulo || "",
+        item.endereco || "",
+        item.latitude ?? "",
+        item.longitude ?? "",
+        item.nivelDoMar ?? "",
+        valor,
         item.linkLocalizacao ||
-          `https://www.google.com/maps?q=${item.latitude},${item.longitude}`,
+          (item.latitude && item.longitude
+            ? `https://www.google.com/maps?q=${item.latitude},${item.longitude}`
+            : ""),
       ];
 
+      row.height = 90;
+      row.alignment = { vertical: "middle", wrapText: true };
+
+      // FORMATO DE MOEDA BRASILEIRO (funciona bem no Microsoft Excel)
+      const valorCell = sheet.getCell(`G${rowIndex}`);
+      valorCell.value = valor;
+      valorCell.numFmt = '"R$ "#.##0,00;[Red]"R$ "-#.##0,00';
+      valorCell.alignment = { horizontal: "right" };
+
+      // Inserção de imagem
       if (item.imagem) {
-        imagePromises.push(
-          fetchImageBuffer(item.imagem).then((img) => {
-            if (img) {
-              const id = workbook.addImage({
-                buffer: img.buffer,
-                extension: img.ext,
-              });
-              sheet.addImage(id, {
-                tl: { col: 0.2, row: rowIndex - 1 },
-                ext: { width: 120, height: 80 },
-              });
-            }
-          })
-        );
+        const promise = fetchImageBuffer(item.imagem).then((imgData) => {
+          if (imgData) {
+            const imageId = workbook.addImage({
+              buffer: imgData.buffer,
+              extension: imgData.ext,
+            });
+            sheet.addImage(imageId, {
+              tl: { col: 0.2, row: rowIndex - 1 },
+              ext: { width: 120, height: 80 },
+              editAs: "oneCell",
+            });
+          }
+        });
+        imagePromises.push(promise);
       }
     });
 
     await Promise.all(imagePromises);
 
-    // =====================================================
-    // ABA 2 — CLIMA
-    // =====================================================
-    const climaSheet = workbook.addWorksheet("Clima");
-
-    climaSheet.columns = [
-      { header: "Campo", width: 35 },
-      { header: "Valor", width: 40 },
-    ];
-
-    climaSheet.addRows([
-      ["Cidade", clima.cidade],
-      ["Nível do mar atual (cm)", clima.nivelAtualCm],
-      [
-        "Projeção 2030 (cm)",
-        `${clima.projecao2030Cm.min} – ${clima.projecao2030Cm.max}`,
-      ],
-      [
-        "Projeção 2050 (cm)",
-        `${clima.projecao2050Cm.min} – ${clima.projecao2050Cm.max}`,
-      ],
-      ["Risco", clima.risco],
-      ["Fonte", clima.fonte],
-      ["Atualização", clima.dataAtualizacao],
-    ]);
-
-    climaSheet.getRow(1).font = { bold: true };
-
-    // =====================================================
-    // ABA 3 — BASE CIENTÍFICA
-    // =====================================================
-    const obsSheet = workbook.addWorksheet("Base Científica");
-
-    obsSheet.columns = [{ width: 110 }];
-    obsSheet.addRows([
-      [
-        "As projeções apresentadas são baseadas nos relatórios do IPCC (AR6), NASA e NOAA.",
-      ],
-      [
-        "A elevação média global do nível do mar pode variar entre 15 cm e 35 cm até 2050.",
-      ],
-      [
-        "Em cidades costeiras como Belém, fatores locais como marés, drenagem urbana e subsidência do solo ampliam os impactos.",
-      ],
-      ["Fontes: IPCC • NASA • NOAA • ONU / PNUD"],
-    ]);
-
-    obsSheet.eachRow((row) => {
-      row.height = 35;
-      row.alignment = { wrapText: true, vertical: "middle" };
+    // Bordas
+    sheet.eachRow((row, rowNumber) => {
+      if (rowNumber >= tableStartRow) {
+        row.eachCell((cell) => {
+          cell.border = {
+            top: { style: "thin", color: { argb: "FFD0D0D0" } },
+            left: { style: "thin", color: { argb: "FFD0D0D0" } },
+            bottom: { style: "thin", color: { argb: "FFD0D0D0" } },
+            right: { style: "thin", color: { argb: "FFD0D0D0" } },
+          };
+        });
+      }
     });
 
-    // ===============================
-    // DOWNLOAD
-    // ===============================
+    // CABEÇALHOS PARA ABRIR DIRETO NO EXCEL
     res.setHeader(
       "Content-Type",
       "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     );
     res.setHeader(
       "Content-Disposition",
-      "attachment; filename=relatorio_imoveis_nivel_do_mar.xlsx"
+      "attachment; filename*=UTF-8''relatorio_imoveis_com_fotos.xlsx"
     );
 
     await workbook.xlsx.write(res);
     res.end();
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: "Erro ao gerar relatório Excel." });
+    console.error("Erro ao gerar Excel:", err);
+    res.status(500).json({ error: "Erro ao gerar relatório." });
   }
 });
 
