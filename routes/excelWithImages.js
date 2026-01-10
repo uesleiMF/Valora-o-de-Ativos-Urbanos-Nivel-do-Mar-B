@@ -12,198 +12,205 @@ const router = express.Router();
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// ===============================
-// FUNÇÃO PARA CARREGAR IMAGENS
-// ===============================
+/* ===============================
+   FUNÇÃO IMAGEM
+================================ */
 async function fetchImageBuffer(source) {
   if (!source) return null;
 
-  // 🌐 IMAGEM REMOTA
   if (/^https?:\/\//i.test(source)) {
     try {
       const response = await axios.get(source, {
         responseType: "arraybuffer",
         timeout: 15000,
       });
-
-      const contentType = response.headers["content-type"] || "image/png";
-      const ext = contentType.includes("jpeg") || contentType.includes("jpg")
-        ? "jpeg"
-        : "png";
-
-      return { buffer: Buffer.from(response.data), ext };
+      return { buffer: Buffer.from(response.data), ext: "png" };
     } catch {
-      console.warn("Erro imagem remota:", source);
       return null;
     }
   }
 
-  // 💾 IMAGEM LOCAL
   try {
-    let localPath = path.join(process.cwd(), "uploads", path.basename(source));
-    if (source.includes("uploads")) {
-      localPath = path.join(process.cwd(), source);
-    }
-
+    const localPath = path.join(process.cwd(), source.includes("uploads") ? source : `uploads/${source}`);
     const buffer = await fs.readFile(localPath);
-    const ext = path.extname(localPath).slice(1) || "png";
-
-    return { buffer, ext };
+    return { buffer, ext: "png" };
   } catch {
-    console.warn("Erro imagem local:", source);
     return null;
   }
 }
 
-// ===============================
-// ROTA PRINCIPAL
-// ===============================
+/* ===============================
+   FUNÇÃO RISCO
+================================ */
+function getCorRisco(cm) {
+  if (cm >= 490) return "Alto";
+  if (cm >= 190) return "Médio";
+  return "Baixo";
+}
+
+/* ===============================
+   ROTA
+================================ */
 router.get("/", async (req, res) => {
   try {
     const imoveis = await Imovel.find().lean();
-
     if (!imoveis.length) {
-      return res.status(404).json({ error: "Nenhum imóvel cadastrado." });
+      return res.status(404).json({ error: "Nenhum imóvel encontrado." });
     }
+
+    // Dados climáticos (fixos / oficiais)
+    const clima = {
+      cidade: "Belém",
+      nivelAtualCm: 0,
+      projecao2030Cm: { min: 8, max: 15 },
+      projecao2050Cm: { min: 15, max: 35 },
+      risco: "Alto",
+      fonte: "IPCC AR6 • NASA • NOAA",
+      dataAtualizacao: "2025-01-05",
+    };
 
     const workbook = new ExcelJS.Workbook();
     workbook.creator = "Valora Ativos Urbanos";
 
-    const sheet = workbook.addWorksheet("Imóveis");
-
-    // ===============================
-    // TÍTULO
-    // ===============================
-    sheet.mergeCells("A1:I2");
-    sheet.getCell("A1").value =
-      "Relatório de Imóveis – Risco de Elevação do Nível do Mar";
-    sheet.getCell("A1").font = { size: 20, bold: true };
-    sheet.getCell("A1").alignment = { horizontal: "center", vertical: "middle" };
-    sheet.getRow(1).height = 55;
-
-    // DATA
-    sheet.mergeCells("A3:I3");
-    sheet.getCell("A3").value =
-      "Gerado em: " +
-      new Date().toLocaleString("pt-BR", {
-        timeZone: "America/Sao_Paulo",
-      });
-
-    // ===============================
-    // CABEÇALHO DA TABELA
-    // ===============================
-    const tableStartRow = 6;
-
-    sheet.getRow(tableStartRow).values = [
-      "Foto",
-      "Título",
-      "Endereço",
-      "Latitude",
-      "Longitude",
-      "Nível do Mar (cm)",
-      "Valor (R$)",
-      "Mapa",
-      "QR Code",
+    /* =====================================================
+       ABA 1 — RESUMO CLIMÁTICO
+    ===================================================== */
+    const resumo = workbook.addWorksheet("Resumo Climático");
+    resumo.columns = [
+      { header: "Item", width: 35 },
+      { header: "Valor", width: 50 },
     ];
+    resumo.addRows([
+      ["Cidade", clima.cidade],
+      ["Nível do mar atual (cm)", clima.nivelAtualCm],
+      ["Projeção 2030 (cm)", `${clima.projecao2030Cm.min} – ${clima.projecao2030Cm.max}`],
+      ["Projeção 2050 (cm)", `${clima.projecao2050Cm.min} – ${clima.projecao2050Cm.max}`],
+      ["Risco", clima.risco],
+      ["Fonte", clima.fonte],
+      ["Atualização", clima.dataAtualizacao],
+    ]);
+    resumo.getRow(1).font = { bold: true };
 
-    sheet.columns = [
-      { width: 20 }, // Foto
-      { width: 30 },
-      { width: 45 },
-      { width: 14 },
-      { width: 14 },
-      { width: 18 },
-      { width: 20 },
-      { width: 38 },
-      { width: 18 }, // QR
-    ];
+    /* =====================================================
+       ABA 2 — BASE CIENTÍFICA
+    ===================================================== */
+    const base = workbook.addWorksheet("Base Científica");
+    base.mergeCells("A1:B12");
+    base.getCell("A1").value = `
+Relatório fundamentado em bases científicas oficiais:
 
-    sheet.getRow(tableStartRow).font = { bold: true };
-    sheet.getRow(tableStartRow).alignment = {
-      horizontal: "center",
-      vertical: "middle",
-    };
+• IPCC – Sixth Assessment Report (AR6)
+• NASA – Sea Level Change Program
+• NOAA – Global Mean Sea Level
+• ONU – Climate Change Reports
 
-    // ===============================
-    // DADOS
-    // ===============================
-    for (let i = 0; i < imoveis.length; i++) {
-      const item = imoveis[i];
-      const rowIndex = tableStartRow + 1 + i;
+Observação regional:
+Em Belém, fatores como subsidência do solo,
+marés amplificadas e drenagem urbana deficiente
+agravam os impactos da elevação do nível do mar.
+`;
+    base.getCell("A1").alignment = { wrapText: true, vertical: "top" };
 
-      sheet.getRow(rowIndex).values = [
-        "",
-        item.titulo || "",
-        item.endereco || "",
-        item.latitude ?? "",
-        item.longitude ?? "",
-        item.nivelDoMar ?? "",
-        Number(item.valorAtual) || 0,
-        item.latitude && item.longitude
-          ? `https://www.google.com/maps?q=${item.latitude},${item.longitude}`
-          : "",
-        "",
+    /* =====================================================
+       FUNÇÃO TABELA IMÓVEIS
+    ===================================================== */
+    async function criarAbaImoveis(nome, tipo) {
+      const sheet = workbook.addWorksheet(nome);
+
+      sheet.columns = [
+        { header: "Foto", width: 18 },
+        { header: "Título", width: 30 },
+        { header: "Endereço", width: 45 },
+        { header: "Latitude", width: 14 },
+        { header: "Longitude", width: 14 },
+        { header: "Nível do mar (cm)", width: 18 },
+        { header: "Risco", width: 14 },
+        { header: "Valor (R$)", width: 20 },
+        { header: "Mapa", width: 38 },
+        { header: "QR Code", width: 18 },
       ];
 
-      sheet.getRow(rowIndex).height = 120;
-      sheet.getRow(rowIndex).alignment = {
-        vertical: "middle",
-        wrapText: true,
-      };
+      sheet.getRow(1).font = { bold: true };
+      sheet.getRow(1).alignment = { vertical: "middle", horizontal: "center" };
 
-      // 💰 MOEDA
-      sheet.getCell(`G${rowIndex}`).numFmt =
-        '"R$ "#.##0,00;[Red]"R$ "-#.##0,00';
+      for (let i = 0; i < imoveis.length; i++) {
+        const imovel = imoveis[i];
 
-      // ===============================
-      // 🖼️ IMAGEM (RESPEITA A LINHA)
-      // ===============================
-      if (item.imagem) {
-        const img = await fetchImageBuffer(item.imagem);
-        if (img) {
-          const imageId = workbook.addImage({
-            buffer: img.buffer,
-            extension: img.ext,
-          });
+        let nivelCm = imovel.nivelAtualCm || 0;
+        if (tipo === 2030) nivelCm = imovel.projecao2030Cm?.max ?? nivelCm;
+        if (tipo === 2050) nivelCm = imovel.projecao2050Cm?.max ?? nivelCm;
 
-          sheet.addImage(imageId, {
-            tl: { col: 0.3, row: rowIndex - 0.8 },
-            ext: { width: 140, height: 95 },
+        const risco = getCorRisco(nivelCm);
+
+        const rowIndex = i + 2;
+        sheet.getRow(rowIndex).height = 110;
+
+        sheet.getRow(rowIndex).values = [
+          "",
+          imovel.titulo || "",
+          imovel.endereco || "",
+          imovel.latitude || "",
+          imovel.longitude || "",
+          nivelCm,
+          risco,
+          imovel.valorAtual || 0,
+          imovel.latitude && imovel.longitude
+            ? `https://www.google.com/maps?q=${imovel.latitude},${imovel.longitude}`
+            : "",
+          "",
+        ];
+
+        sheet.getCell(`H${rowIndex}`).numFmt =
+          '"R$ "#.##0,00;[Red]"R$ "-#.##0,00';
+
+        // IMAGEM
+        if (imovel.imagem) {
+          const img = await fetchImageBuffer(imovel.imagem);
+          if (img) {
+            const imgId = workbook.addImage({
+              buffer: img.buffer,
+              extension: img.ext,
+            });
+            sheet.addImage(imgId, {
+              tl: { col: 0.3, row: rowIndex - 0.8 },
+              ext: { width: 120, height: 80 },
+              editAs: "oneCell",
+            });
+          }
+        }
+
+        // QR CODE
+        if (imovel.latitude && imovel.longitude) {
+          const mapUrl = `https://www.google.com/maps?q=${imovel.latitude},${imovel.longitude}`;
+          const qr = await QRCode.toBuffer(mapUrl);
+          const qrId = workbook.addImage({ buffer: qr, extension: "png" });
+
+          sheet.addImage(qrId, {
+            tl: { col: 9.3, row: rowIndex - 0.8 },
+            ext: { width: 85, height: 85 },
             editAs: "oneCell",
           });
         }
       }
-
-      // ===============================
-      // 📍 QR CODE GOOGLE MAPS
-      // ===============================
-      if (item.latitude && item.longitude) {
-        const mapUrl = `https://www.google.com/maps?q=${item.latitude},${item.longitude}`;
-        const qrBuffer = await QRCode.toBuffer(mapUrl);
-
-        const qrId = workbook.addImage({
-          buffer: qrBuffer,
-          extension: "png",
-        });
-
-        sheet.addImage(qrId, {
-          tl: { col: 8.3, row: rowIndex - 0.8 },
-          ext: { width: 95, height: 95 },
-          editAs: "oneCell",
-        });
-      }
     }
 
-    // ===============================
-    // DOWNLOAD
-    // ===============================
+    /* =====================================================
+       ABAS DE IMÓVEIS
+    ===================================================== */
+    await criarAbaImoveis("Imóveis - Atual (2025)", 2025);
+    await criarAbaImoveis("Imóveis - Projeção 2030", 2030);
+    await criarAbaImoveis("Imóveis - Projeção 2050", 2050);
+
+    /* =====================================================
+       DOWNLOAD
+    ===================================================== */
     res.setHeader(
       "Content-Type",
       "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     );
     res.setHeader(
       "Content-Disposition",
-      "attachment; filename=relatorio_imoveis_com_qrcode.xlsx"
+      "attachment; filename=relatorio_completo_valora.xlsx"
     );
 
     await workbook.xlsx.write(res);
