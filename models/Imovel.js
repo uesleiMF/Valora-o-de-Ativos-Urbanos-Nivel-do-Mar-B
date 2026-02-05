@@ -1,8 +1,12 @@
 import mongoose from "mongoose";
 
-
 const imovelSchema = new mongoose.Schema({
   titulo: { type: String, required: true },
+  tipo: { 
+    type: String, 
+    required: true,
+    enum: ["casa", "apartamento", "terreno", "comercial"]
+  },
   endereco: { type: String, required: true },
   latitude: { type: String, required: true }, 
   longitude: { type: String, required: true }, 
@@ -12,7 +16,6 @@ const imovelSchema = new mongoose.Schema({
   risco: String,
   imagem: String,
   linkLocalizacao: String
-});
-
+}, { timestamps: true });
 
 export default mongoose.model("Imovel", imovelSchema);

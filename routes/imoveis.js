@@ -1,16 +1,32 @@
 import express from "express";
 import multer from "multer";
-import { listarImoveis, criarImovel } from "../controllers/imoveisController.js";
 import ExcelJS from "exceljs";
 import Imovel from "../models/Imovel.js";
+import {
+  listarImoveis,
+  criarImovel
+} from "../controllers/imoveisController.js";
 
 const router = express.Router();
 const upload = multer({ dest: "uploads/" });
 
+/*
+  ROTA ➜ GET /api/imoveis
+  -----------------------
+  Lista imóveis
+  Filtro opcional:
+  ?tipo=casa | apartamento | terreno | comercial
+*/
 router.get("/", listarImoveis);
+
+/*
+  ROTA ➜ POST /api/imoveis
+  ------------------------
+  Cria um novo imóvel (com imagem)
+*/
 router.post("/", upload.single("imagem"), criarImovel);
 
-/*  
+/*
   ROTA ➜ GET /api/imoveis/export
   ------------------------------
   Exporta todos os imóveis para Excel
@@ -25,6 +41,7 @@ router.get("/export", async (req, res) => {
     // Cabeçalho da planilha
     sheet.addRow([
       "Título",
+      "Tipo",
       "Endereço",
       "Latitude",
       "Longitude",
@@ -37,6 +54,7 @@ router.get("/export", async (req, res) => {
     imoveis.forEach((imovel) => {
       sheet.addRow([
         imovel.titulo,
+        imovel.tipo,
         imovel.endereco,
         imovel.latitude,
         imovel.longitude,
@@ -46,7 +64,7 @@ router.get("/export", async (req, res) => {
       ]);
     });
 
-    // Configurar o download
+    // Configurar headers de download
     res.setHeader(
       "Content-Type",
       "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"

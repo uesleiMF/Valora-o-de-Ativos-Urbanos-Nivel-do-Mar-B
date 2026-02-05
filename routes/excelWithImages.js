@@ -48,15 +48,13 @@ async function fetchImageBuffer(source) {
 }
 
 /* ===============================
-   NÍVEL DO MAR POR ANO (REGRA ÚNICA)
+   NÍVEL DO MAR
 ================================ */
 function calcularNivelPorAno(imovel, ano) {
   const baseCm = Math.round((Number(imovel.nivelDoMar) || 0) * METROS_PARA_CM);
-
   if (ano === 2030) return baseCm + 15;
   if (ano === 2050) return baseCm + 35;
-
-  return baseCm; // 2025
+  return baseCm;
 }
 
 /* ===============================
@@ -69,17 +67,21 @@ function getRiscoTexto(cm) {
 }
 
 /* ===============================
-   ROTA
+   ROTA RELATÓRIO
 ================================ */
 router.get("/", async (req, res) => {
   try {
-    const imoveis = await Imovel.find().lean();
+    const { tipo } = req.query;
+
+    const filtro = tipo ? { tipo } : {};
+    const imoveis = await Imovel.find(filtro).lean();
+
     if (!imoveis.length) {
       return res.status(404).json({ error: "Nenhum imóvel encontrado." });
     }
 
     /* ===============================
-       DADOS CLIMÁTICOS (OFICIAIS)
+       DADOS CLIMÁTICOS
     ================================ */
     const clima = {
       cidade: "Belém",
@@ -104,15 +106,10 @@ router.get("/", async (req, res) => {
     ];
     resumo.addRows([
       ["Cidade", clima.cidade],
+      ["Tipo filtrado", tipo || "Todos"],
       ["Nível do mar atual (cm)", clima.nivelAtualCm],
-      [
-        "Projeção 2030 (cm)",
-        `${clima.projecao2030Cm.min} – ${clima.projecao2030Cm.max}`,
-      ],
-      [
-        "Projeção 2050 (cm)",
-        `${clima.projecao2050Cm.min} – ${clima.projecao2050Cm.max}`,
-      ],
+      ["Projeção 2030 (cm)", `${clima.projecao2030Cm.min} – ${clima.projecao2030Cm.max}`],
+      ["Projeção 2050 (cm)", `${clima.projecao2050Cm.min} – ${clima.projecao2050Cm.max}`],
       ["Risco", clima.risco],
       ["Fonte", clima.fonte],
       ["Atualização", clima.dataAtualizacao],
@@ -131,19 +128,11 @@ Relatório fundamentado em bases científicas oficiais:
 • NASA – Sea Level Change Program
 • NOAA – Global Mean Sea Level
 • ONU – Climate Change Reports
-
-Observação regional:
-Em Belém, fatores como subsidência do solo,
-marés amplificadas e drenagem urbana deficiente
-agravam os impactos da elevação do nível do mar.
 `;
-    base.getCell("A1").alignment = {
-      wrapText: true,
-      vertical: "top",
-    };
+    base.getCell("A1").alignment = { wrapText: true, vertical: "top" };
 
     /* =====================================================
-       FUNÇÃO TABELA IMÓVEIS
+       FUNÇÃO ABA IMÓVEIS
     ===================================================== */
     async function criarAbaImoveis(nome, ano) {
       const sheet = workbook.addWorksheet(nome);
@@ -151,6 +140,7 @@ agravam os impactos da elevação do nível do mar.
       sheet.columns = [
         { header: "Foto", width: 18 },
         { header: "Título", width: 30 },
+        { header: "Tipo", width: 16 },
         { header: "Endereço", width: 45 },
         { header: "Latitude", width: 14 },
         { header: "Longitude", width: 14 },
@@ -162,26 +152,21 @@ agravam os impactos da elevação do nível do mar.
       ];
 
       sheet.getRow(1).font = { bold: true };
-      sheet.getRow(1).alignment = {
-        vertical: "middle",
-        horizontal: "center",
-      };
 
       for (let i = 0; i < imoveis.length; i++) {
         const imovel = imoveis[i];
-
         const nivelCm = calcularNivelPorAno(imovel, ano);
         const risco = getRiscoTexto(nivelCm);
-
         const rowIndex = i + 2;
-        sheet.getRow(rowIndex).height = 110;
 
+        sheet.getRow(rowIndex).height = 110;
         sheet.getRow(rowIndex).values = [
           "",
-          imovel.titulo || "",
-          imovel.endereco || "",
-          imovel.latitude || "",
-          imovel.longitude || "",
+          imovel.titulo,
+          imovel.tipo,
+          imovel.endereco,
+          imovel.latitude,
+          imovel.longitude,
           nivelCm,
           risco,
           imovel.valorAtual || 0,
@@ -191,7 +176,7 @@ agravam os impactos da elevação do nível do mar.
           "",
         ];
 
-        sheet.getCell(`H${rowIndex}`).numFmt =
+        sheet.getCell(`I${rowIndex}`).numFmt =
           '"R$ "#.##0,00;[Red]"R$ "-#.##0,00';
 
         /* IMAGEM */
@@ -212,15 +197,12 @@ agravam os impactos da elevação do nível do mar.
 
         /* QR CODE */
         if (imovel.latitude && imovel.longitude) {
-          const mapUrl = `https://www.google.com/maps?q=${imovel.latitude},${imovel.longitude}`;
-          const qr = await QRCode.toBuffer(mapUrl);
-          const qrId = workbook.addImage({
-            buffer: qr,
-            extension: "png",
-          });
-
+          const qr = await QRCode.toBuffer(
+            `https://www.google.com/maps?q=${imovel.latitude},${imovel.longitude}`
+          );
+          const qrId = workbook.addImage({ buffer: qr, extension: "png" });
           sheet.addImage(qrId, {
-            tl: { col: 9.3, row: rowIndex - 0.8 },
+            tl: { col: 10.3, row: rowIndex - 0.8 },
             ext: { width: 85, height: 85 },
             editAs: "oneCell",
           });
@@ -244,11 +226,12 @@ agravam os impactos da elevação do nível do mar.
     );
     res.setHeader(
       "Content-Disposition",
-      "attachment; filename=relatorio_completo_valora.xlsx"
+      "attachment; filename=relatorio_valora_com_tipo.xlsx"
     );
 
     await workbook.xlsx.write(res);
     res.end();
+
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Erro ao gerar relatório." });
