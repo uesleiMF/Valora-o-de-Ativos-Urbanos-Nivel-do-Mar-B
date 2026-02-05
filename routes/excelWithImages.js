@@ -9,21 +9,16 @@ import Imovel from "../models/Imovel.js";
 const router = express.Router();
 const METROS_PARA_CM = 100;
 
-/* ===============================
-   FUNÇÃO PARA PEGAR IMAGEM
-================================ */
 async function fetchImageBuffer(source) {
   if (!source) return null;
-
   if (/^https?:\/\//i.test(source)) {
     try {
       const res = await axios.get(source, { responseType: "arraybuffer", timeout: 15000 });
-      return { buffer: Buffer.from(res.data), ext: "png" }; // imagens da web ficam em PNG
+      return { buffer: Buffer.from(res.data), ext: "png" };
     } catch {
       return null;
     }
   }
-
   try {
     const localPath = path.join(process.cwd(), source.includes("uploads") ? source : `uploads/${source}`);
     const buffer = await fs.readFile(localPath);
@@ -35,9 +30,6 @@ async function fetchImageBuffer(source) {
   }
 }
 
-/* ===============================
-   CALCULAR NÍVEL POR ANO
-================================ */
 function calcularNivelPorAno(imovel, ano) {
   const baseCm = Math.round((Number(imovel.nivelDoMar) || 0) * METROS_PARA_CM);
   if (ano === 2030) return baseCm + 15;
@@ -45,18 +37,12 @@ function calcularNivelPorAno(imovel, ano) {
   return baseCm; // 2025
 }
 
-/* ===============================
-   RISCO
-================================ */
 function getRiscoTexto(cm) {
   if (cm >= 490) return "Alto";
   if (cm >= 190) return "Médio";
   return "Baixo";
 }
 
-/* ===============================
-   ROTA
-================================ */
 router.get("/", async (req, res) => {
   try {
     const imoveis = await Imovel.find().lean();
@@ -65,9 +51,7 @@ router.get("/", async (req, res) => {
     const workbook = new ExcelJS.Workbook();
     workbook.creator = "Valora Ativos Urbanos";
 
-    /* =====================================================
-       ABA 1 — RESUMO CLIMÁTICO
-    ===================================================== */
+    // ================= Resumo Climático
     const clima = {
       cidade: "Belém",
       nivelAtualCm: 30,
@@ -92,14 +76,17 @@ router.get("/", async (req, res) => {
       ["Fonte", clima.fonte],
       ["Atualização", clima.dataAtualizacao],
     ]);
-    resumo.getRow(1).font = { bold: true };
 
-    /* =====================================================
-       ABA 2 — BASE CIENTÍFICA
-    ===================================================== */
+    // Cabeçalho bold
+    resumo.getRow(1).font = { bold: true };
+    resumo.getRow(1).alignment = { vertical: "middle", horizontal: "center" };
+    resumo.eachRow((row, index) => {
+      row.alignment = { vertical: "middle", horizontal: index === 1 ? "center" : "left", wrapText: true };
+    });
+
+    // ================= Base Científica
     const base = workbook.addWorksheet("Base Científica");
-    base.mergeCells("A1:B12");
-    base.getCell("A1").value = `
+    const textoBase = `
 Relatório fundamentado em bases científicas oficiais:
 
 • IPCC – Sixth Assessment Report (AR6)
@@ -112,14 +99,14 @@ Em Belém, fatores como subsidência do solo,
 marés amplificadas e drenagem urbana deficiente
 agravam os impactos da elevação do nível do mar.
 `;
-    base.getCell("A1").alignment = { wrapText: true, vertical: "top" };
+    base.mergeCells("A1:B12");
+    base.getCell("A1").value = textoBase;
+    base.getCell("A1").alignment = { wrapText: true, vertical: "top", horizontal: "left" };
+    base.getRow(1).height = 180;
 
-    /* =====================================================
-       ABA IMÓVEIS
-    ===================================================== */
+    // ================= Imóveis
     async function criarAbaImoveis(nome, ano) {
       const sheet = workbook.addWorksheet(nome);
-
       sheet.columns = [
         { header: "Foto", width: 25 },
         { header: "Título", width: 30 },
@@ -144,9 +131,10 @@ agravam os impactos da elevação do nível do mar.
         const valorPrevisto10 = Math.round((imovel.valorAtual || 0) * 1.1);
         const rowIndex = i + 2;
         sheet.getRow(rowIndex).height = 120;
+        sheet.getRow(rowIndex).alignment = { vertical: "middle", horizontal: "center", wrapText: true };
 
         sheet.getRow(rowIndex).values = [
-          "", // Foto
+          "",
           imovel.titulo || "",
           imovel.endereco || "",
           imovel.latitude || "",
@@ -156,53 +144,44 @@ agravam os impactos da elevação do nível do mar.
           imovel.valorAtual || 0,
           valorPrevisto10,
           imovel.latitude && imovel.longitude ? `https://www.google.com/maps?q=${imovel.latitude},${imovel.longitude}` : "",
-          "", // QR Code
+          "",
         ];
 
-        // Formato de moeda compatível Excel/LibreOffice
         sheet.getCell(`H${rowIndex}`).numFmt = 'R$ #,##0.00';
         sheet.getCell(`I${rowIndex}`).numFmt = 'R$ #,##0.00';
 
-        /* IMAGEM */
+        // Imagem
         if (imovel.imagem) {
           const img = await fetchImageBuffer(imovel.imagem);
           if (img) {
             const imgId = workbook.addImage({ buffer: img.buffer, extension: img.ext });
             sheet.addImage(imgId, {
-              tl: { col: 0, row: rowIndex - 1 },
-              br: { col: 1, row: rowIndex }
+              tl: { col: 0.1, row: rowIndex - 1 + 0.05 },
+              br: { col: 1.9, row: rowIndex - 1 + 0.95 }
             });
           }
         }
 
-        /* QR CODE */
+        // QR Code
         if (imovel.latitude && imovel.longitude) {
           const mapUrl = `https://www.google.com/maps?q=${imovel.latitude},${imovel.longitude}`;
           const qrBuffer = await QRCode.toBuffer(mapUrl, { width: 120 });
           const qrId = workbook.addImage({ buffer: qrBuffer, extension: "png" });
           sheet.addImage(qrId, {
-            tl: { col: 10, row: rowIndex - 1 },
-            br: { col: 11, row: rowIndex }
+            tl: { col: 10.1, row: rowIndex - 1 + 0.05 },
+            br: { col: 10.9, row: rowIndex - 1 + 0.95 }
           });
         }
       }
     }
 
-    // Criar abas de imóveis
     await criarAbaImoveis("Imóveis - Atual (2025)", 2025);
     await criarAbaImoveis("Imóveis - Projeção 2030", 2030);
     await criarAbaImoveis("Imóveis - Projeção 2050", 2050);
 
-    // Gerar buffer e enviar Excel
     const buffer = await workbook.xlsx.writeBuffer();
-    res.setHeader(
-      "Content-Type",
-      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-    );
-    res.setHeader(
-      "Content-Disposition",
-      "attachment; filename=relatorio_completo_valora.xlsx"
-    );
+    res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+    res.setHeader("Content-Disposition", "attachment; filename=relatorio_valora_profissional.xlsx");
     res.send(buffer);
 
   } catch (err) {
