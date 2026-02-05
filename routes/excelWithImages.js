@@ -7,7 +7,6 @@ import QRCode from "qrcode";
 import Imovel from "../models/Imovel.js";
 
 const router = express.Router();
-
 const METROS_PARA_CM = 100;
 
 /* ===============================
@@ -64,9 +63,9 @@ router.get("/", async (req, res) => {
     const workbook = new ExcelJS.Workbook();
     workbook.creator = "Valora Ativos Urbanos";
 
-    /* ===============================
-       DADOS CLIMÁTICOS
-    ================================ */
+    /* =====================================================
+       ABA 1 — RESUMO CLIMÁTICO
+    ===================================================== */
     const clima = {
       cidade: "Belém",
       nivelAtualCm: 30,
@@ -77,9 +76,6 @@ router.get("/", async (req, res) => {
       dataAtualizacao: "2025-01-05",
     };
 
-    /* =====================================================
-       ABA 1 — RESUMO CLIMÁTICO
-    ===================================================== */
     const resumo = workbook.addWorksheet("Resumo Climático");
     resumo.columns = [
       { header: "Item", width: 35 },
@@ -143,10 +139,7 @@ agravam os impactos da elevação do nível do mar.
         const imovel = imoveis[i];
         const nivelCm = calcularNivelPorAno(imovel, ano);
         const risco = getRiscoTexto(nivelCm);
-
-        // Valor previsto 10 anos (simulação de 10% de aumento)
         const valorPrevisto10 = Math.round((imovel.valorAtual || 0) * 1.1);
-
         const rowIndex = i + 2;
         sheet.getRow(rowIndex).height = 120;
 
@@ -172,21 +165,27 @@ agravam os impactos da elevação do nível do mar.
           const img = await fetchImageBuffer(imovel.imagem);
           if (img) {
             const imgId = workbook.addImage({ buffer: img.buffer, extension: img.ext });
-            sheet.addImage(imgId, { tl: { col: 0, row: rowIndex - 1 }, ext: { width: 120, height: 80 } });
+            sheet.addImage(imgId, {
+              tl: { col: 0, row: rowIndex - 1 },
+              br: { col: 1, row: rowIndex }
+            });
           }
         }
 
         /* QR CODE */
         if (imovel.latitude && imovel.longitude) {
           const mapUrl = `https://www.google.com/maps?q=${imovel.latitude},${imovel.longitude}`;
-          const qrBuffer = await QRCode.toBuffer(mapUrl, { width: 100 });
+          const qrBuffer = await QRCode.toBuffer(mapUrl, { width: 120 });
           const qrId = workbook.addImage({ buffer: qrBuffer, extension: "png" });
-          sheet.addImage(qrId, { tl: { col: 10, row: rowIndex - 1 }, ext: { width: 80, height: 80 } });
+          sheet.addImage(qrId, {
+            tl: { col: 10, row: rowIndex - 1 },
+            br: { col: 11, row: rowIndex }
+          });
         }
       }
     }
 
-    // Criar abas
+    // Criar abas de imóveis
     await criarAbaImoveis("Imóveis - Atual (2025)", 2025);
     await criarAbaImoveis("Imóveis - Projeção 2030", 2030);
     await criarAbaImoveis("Imóveis - Projeção 2050", 2050);
