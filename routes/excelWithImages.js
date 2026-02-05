@@ -18,7 +18,7 @@ async function fetchImageBuffer(source) {
   if (/^https?:\/\//i.test(source)) {
     try {
       const res = await axios.get(source, { responseType: "arraybuffer", timeout: 15000 });
-      return { buffer: Buffer.from(res.data), ext: "png" };
+      return { buffer: Buffer.from(res.data), ext: "png" }; // imagens da web ficam em PNG
     } catch {
       return null;
     }
@@ -27,7 +27,9 @@ async function fetchImageBuffer(source) {
   try {
     const localPath = path.join(process.cwd(), source.includes("uploads") ? source : `uploads/${source}`);
     const buffer = await fs.readFile(localPath);
-    return { buffer, ext: "png" };
+    const ext = path.extname(localPath).toLowerCase();
+    const imgExt = ext === ".jpg" || ext === ".jpeg" ? "jpeg" : "png";
+    return { buffer, ext: imgExt };
   } catch {
     return null;
   }
@@ -119,7 +121,7 @@ agravam os impactos da elevação do nível do mar.
       const sheet = workbook.addWorksheet(nome);
 
       sheet.columns = [
-        { header: "Foto", width: 18 },
+        { header: "Foto", width: 25 },
         { header: "Título", width: 30 },
         { header: "Endereço", width: 45 },
         { header: "Latitude", width: 14 },
@@ -157,8 +159,9 @@ agravam os impactos da elevação do nível do mar.
           "", // QR Code
         ];
 
-        sheet.getCell(`H${rowIndex}`).numFmt = '"R$ "#,##0.00;[Red]"R$ "-#,##0.00';
-        sheet.getCell(`I${rowIndex}`).numFmt = '"R$ "#,##0.00;[Red]"R$ "-#,##0.00';
+        // Formato de moeda compatível Excel/LibreOffice
+        sheet.getCell(`H${rowIndex}`).numFmt = 'R$ #,##0.00';
+        sheet.getCell(`I${rowIndex}`).numFmt = 'R$ #,##0.00';
 
         /* IMAGEM */
         if (imovel.imagem) {
@@ -190,7 +193,8 @@ agravam os impactos da elevação do nível do mar.
     await criarAbaImoveis("Imóveis - Projeção 2030", 2030);
     await criarAbaImoveis("Imóveis - Projeção 2050", 2050);
 
-    // Enviar Excel
+    // Gerar buffer e enviar Excel
+    const buffer = await workbook.xlsx.writeBuffer();
     res.setHeader(
       "Content-Type",
       "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
@@ -199,9 +203,8 @@ agravam os impactos da elevação do nível do mar.
       "Content-Disposition",
       "attachment; filename=relatorio_completo_valora.xlsx"
     );
+    res.send(buffer);
 
-    await workbook.xlsx.write(res);
-    res.end();
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Erro ao gerar relatório." });
