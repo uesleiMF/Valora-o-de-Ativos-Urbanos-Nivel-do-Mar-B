@@ -2,65 +2,88 @@ import Imovel from "../models/Imovel.js";
 import cloudinary from "../config/cloudinaryConfig.js";
 import fs from "fs";
 
-// Função para calcular valor previsto considerando anos e risco
-const calcularValorPrevisto = (valorAtual, nivelDoMar, anos) => {
-  let fatorRisco = 1;
-
-  if (nivelDoMar >= 4) fatorRisco = 0.8;
-  else if (nivelDoMar >= 2) fatorRisco = 0.9;
-  else fatorRisco = 0.95;
-
-  const taxaAnual = 0.03; // 3% de valorização anual
-  const valorPrevisto = valorAtual * fatorRisco * Math.pow(1 + taxaAnual, anos);
-
-  return Math.round(valorPrevisto);
+// ===============================
+// FUNÇÕES AUXILIARES
+// ===============================
+const calcularRisco = (nivelDoMar) => {
+  if (nivelDoMar >= 4) return "Alto";
+  if (nivelDoMar >= 2) return "Médio";
+  return "Baixo";
 };
 
+const calcularValorPrevisto = (valorAtual, nivelDoMar) => {
+  if (nivelDoMar >= 4) return Math.round(valorAtual * 0.8);
+  if (nivelDoMar >= 2) return Math.round(valorAtual * 0.9);
+  return Math.round(valorAtual * 0.95);
+};
+
+// ===============================
+// LISTAR IMÓVEIS
+// ===============================
 export const listarImoveis = async (req, res) => {
   try {
-    const imoveis = await Imovel.find();
-    const imoveisComRisco = imoveis.map(i => ({
-      ...i._doc,
-      risco: i.nivelDoMar >= 4 ? "Alto" : i.nivelDoMar >= 2 ? "Médio" : "Baixo",
-      valorPrevisto5: calcularValorPrevisto(i.valorAtual, i.nivelDoMar, 5),
-      valorPrevisto10: calcularValorPrevisto(i.valorAtual, i.nivelDoMar, 10),
-      valorPrevisto20: calcularValorPrevisto(i.valorAtual, i.nivelDoMar, 20)
-    }));
-    res.json(imoveisComRisco);
+    const imoveis = await Imovel.find().sort({ createdAt: -1 });
+    res.json(imoveis);
   } catch (err) {
-    res.status(500).json({ message: err.message });
+    console.error(err);
+    res.status(500).json({ error: "Erro ao listar imóveis" });
   }
 };
 
+// ===============================
+// CRIAR IMÓVEL
+// ===============================
 export const criarImovel = async (req, res) => {
   try {
-    const { titulo, endereco, latitude, longitude, nivelDoMar, valorAtual, linkLocalizacao } = req.body;
-    let imagemUrl = "";
+    const {
+      titulo,
+      tipo,
+      endereco,
+      latitude,
+      longitude,
+      nivelDoMar,
+      valorAtual,
+      linkLocalizacao,
+    } = req.body;
 
-    if (req.file) {
-      const result = await cloudinary.uploader.upload(req.file.path, { folder: "imoveis" });
-      imagemUrl = result.secure_url;
-      fs.unlink(req.file.path, ()=>{});
+    // 🔒 validação básica
+    if (!titulo || !tipo || !endereco) {
+      return res.status(400).json({ error: "Campos obrigatórios faltando" });
     }
 
-    const imovel = new Imovel({
+    let imagemUrl = "";
+
+    // ===============================
+    // UPLOAD CLOUDINARY
+    // ===============================
+    if (req.file) {
+      const result = await cloudinary.uploader.upload(req.file.path, {
+        folder: "imoveis",
+      });
+      imagemUrl = result.secure_url;
+      fs.unlink(req.file.path, () => {});
+    }
+
+    const nivel = Number(nivelDoMar);
+    const valor = Number(valorAtual);
+
+    const novoImovel = await Imovel.create({
       titulo,
+      tipo,
       endereco,
-      latitude: Number(latitude),
-      longitude: Number(longitude),
-      nivelDoMar: Number(nivelDoMar),
-      valorAtual: Number(valorAtual),
-      risco: Number(nivelDoMar) >= 4 ? "Alto" : Number(nivelDoMar) >= 2 ? "Médio" : "Baixo",
-      valorPrevisto5: calcularValorPrevisto(Number(valorAtual), Number(nivelDoMar), 5),
-      valorPrevisto10: calcularValorPrevisto(Number(valorAtual), Number(nivelDoMar), 10),
-      valorPrevisto20: calcularValorPrevisto(Number(valorAtual), Number(nivelDoMar), 20),
+      latitude: String(latitude),
+      longitude: String(longitude),
+      nivelDoMar: nivel,
+      valorAtual: valor,
+      risco: calcularRisco(nivel),
+      valorPrevisto: calcularValorPrevisto(valor, nivel),
       imagem: imagemUrl,
-      linkLocalizacao
+      linkLocalizacao,
     });
 
-    await imovel.save();
-    res.status(201).json(imovel);
+    res.status(201).json(novoImovel);
   } catch (err) {
-    res.status(500).json({ message: err.message });
+    console.error(err);
+    res.status(500).json({ error: "Erro ao criar imóvel" });
   }
 };

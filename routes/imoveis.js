@@ -8,6 +8,8 @@ import {
 } from "../controllers/imoveisController.js";
 
 const router = express.Router();
+
+// Multer (upload temporário)
 const upload = multer({ dest: "uploads/" });
 
 /*
@@ -29,16 +31,22 @@ router.post("/", upload.single("imagem"), criarImovel);
 /*
   ROTA ➜ GET /api/imoveis/export
   ------------------------------
-  Exporta todos os imóveis para Excel
+  Exporta imóveis para Excel
+  (respeita filtro ?tipo=)
 */
 router.get("/export", async (req, res) => {
   try {
-    const imoveis = await Imovel.find();
+    const { tipo } = req.query;
+
+    // Filtro opcional por tipo
+    const filtro = tipo ? { tipo } : {};
+
+    const imoveis = await Imovel.find(filtro);
 
     const workbook = new ExcelJS.Workbook();
     const sheet = workbook.addWorksheet("Imóveis");
 
-    // Cabeçalho da planilha
+    // Cabeçalho
     sheet.addRow([
       "Título",
       "Tipo",
@@ -46,7 +54,11 @@ router.get("/export", async (req, res) => {
       "Latitude",
       "Longitude",
       "Nível do Mar",
+      "Risco",
       "Valor Atual",
+      "Valor Previsto (5 anos)",
+      "Valor Previsto (10 anos)",
+      "Valor Previsto (20 anos)",
       "Link Google Maps"
     ]);
 
@@ -59,12 +71,16 @@ router.get("/export", async (req, res) => {
         imovel.latitude,
         imovel.longitude,
         imovel.nivelDoMar,
+        imovel.risco,
         imovel.valorAtual,
+        imovel.valorPrevisto5 || "",
+        imovel.valorPrevisto10 || "",
+        imovel.valorPrevisto20 || "",
         `https://www.google.com/maps?q=${imovel.latitude},${imovel.longitude}`
       ]);
     });
 
-    // Configurar headers de download
+    // Headers de download
     res.setHeader(
       "Content-Type",
       "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
@@ -78,7 +94,7 @@ router.get("/export", async (req, res) => {
     res.end();
 
   } catch (error) {
-    console.error(error);
+    console.error("Erro ao exportar Excel:", error);
     res.status(500).json({ error: "Erro ao gerar Excel" });
   }
 });
