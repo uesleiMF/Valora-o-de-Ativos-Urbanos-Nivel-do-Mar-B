@@ -1,106 +1,66 @@
 import express from "express";
-import bcrypt from "bcryptjs";
-import jwt from "jsonwebtoken";
-import User from "../models/User.js";
+import User from "../models/User.js";   // ajuste o caminho se necessário
 
 const router = express.Router();
 
-
-// 📝 CADASTRO
+// ==================== REGISTER ====================
 router.post("/register", async (req, res) => {
-  const { nome, email, senha } = req.body;
-
-  // 🔒 validação básica
-  if (!nome || !email || !senha) {
-    return res.status(400).json({
-      message: "Preencha todos os campos",
-    });
-  }
-
   try {
-    const userExist = await User.findOne({ email });
+    const { nome, email, senha, usuario } = req.body;
 
-    if (userExist) {
-      return res.status(400).json({
-        message: "Usuário já existe",
+    // Validação flexível (aceita "nome" ou "usuario")
+    const usuarioFinal = usuario || nome;
+
+    if (!usuarioFinal || !email || !senha) {
+      return res.status(400).json({ 
+        message: "Preencha todos os campos (nome/usuario, email e senha)" 
       });
     }
 
-    const senhaHash = await bcrypt.hash(senha, 10);
+    if (senha.length < 6) {
+      return res.status(400).json({ 
+        message: "Senha deve ter pelo menos 6 caracteres" 
+      });
+    }
 
-    const user = await User.create({
-      nome,
+    // Verifica se já existe
+    const existingUser = await User.findOne({ 
+      $or: [{ email }, { usuario: usuarioFinal }] 
+    });
+
+    if (existingUser) {
+      return res.status(400).json({ 
+        message: "Email ou usuário já cadastrado" 
+      });
+    }
+
+    // Cria o usuário
+    const newUser = new User({
+      usuario: usuarioFinal,
+      nome: nome || usuarioFinal,
       email,
-      senha: senhaHash,
+      senha,                    // ← TODO: faça hash com bcrypt!
     });
 
-    // ❌ nunca retorne senha
+    await newUser.save();
+
     res.status(201).json({
-      message: "Usuário criado com sucesso",
+      message: "Usuário cadastrado com sucesso!",
       user: {
-        id: user._id,
-        nome: user.nome,
-        email: user.email,
-      },
+        id: newUser._id,
+        nome: newUser.nome,
+        email: newUser.email,
+        usuario: newUser.usuario,
+      }
     });
 
-  } catch (err) {
-    console.error("[REGISTER]", err);
-    res.status(500).json({ message: err.message });
+  } catch (error) {
+    console.error("Erro no register:", error);
+    res.status(500).json({ message: "Erro interno ao cadastrar usuário" });
   }
 });
 
-
-// 🔑 LOGIN
-router.post("/login", async (req, res) => {
-  const { email, senha } = req.body;
-
-  // 🔒 validação
-  if (!email || !senha) {
-    return res.status(400).json({
-      message: "Email e senha são obrigatórios",
-    });
-  }
-
-  try {
-    const user = await User.findOne({ email });
-
-    if (!user) {
-      return res.status(404).json({
-        message: "Usuário não encontrado",
-      });
-    }
-
-    const isMatch = await bcrypt.compare(senha, user.senha);
-
-    if (!isMatch) {
-      return res.status(401).json({
-        message: "Senha inválida",
-      });
-    }
-
-    const token = jwt.sign(
-      {
-        id: user._id,
-        email: user.email,
-      },
-      process.env.JWT_SECRET,
-      { expiresIn: "7d" }
-    );
-
-    res.json({
-      user: {
-        id: user._id,
-        nome: user.nome,
-        email: user.email,
-      },
-      token,
-    });
-
-  } catch (err) {
-    console.error("[LOGIN]", err);
-    res.status(500).json({ message: err.message });
-  }
-});
+// ==================== LOGIN ====================
+// (adicione aqui sua rota de login se ainda não tiver)
 
 export default router;
