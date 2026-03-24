@@ -6,7 +6,7 @@ import {
   listarImoveis,
   criarImovel
 } from "../controllers/imoveisController.js";
-
+import { authMiddleware } from "../middleware/auth.js";
 const router = express.Router();
 
 // Multer (upload temporário)
@@ -28,6 +28,36 @@ router.get("/", listarImoveis);
 */
 router.post("/", upload.single("imagem"), criarImovel);
 
+
+router.put("/:id", authMiddleware, async (req, res) => {
+  try {
+    const imovel = await Imovel.findByIdAndUpdate(
+      req.params.id,
+      req.body,
+      { new: true }
+    );
+
+    if (!imovel)
+      return res.status(404).json({ message: "Imóvel não encontrado" });
+
+    res.json(imovel);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+router.delete("/:id", authMiddleware, async (req, res) => {
+  try {
+    const imovel = await Imovel.findByIdAndDelete(req.params.id);
+
+    if (!imovel)
+      return res.status(404).json({ message: "Imóvel não encontrado" });
+
+    res.json({ message: "Imóvel deletado com sucesso" });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
 /*
   ROTA ➜ GET /api/imoveis/export
   ------------------------------

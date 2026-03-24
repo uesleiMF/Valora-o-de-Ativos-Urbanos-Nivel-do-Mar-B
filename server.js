@@ -4,7 +4,8 @@ import cors from "cors";
 import dotenv from "dotenv";
 import path from "path";
 
-// Rotas
+// ROTAS
+import authRoutes from "./routes/auth.js";
 import imoveisRoutes from "./routes/imoveis.js";
 import climateRoutes from "./routes/climate.js";
 import excelWithImagesRoutes from "./routes/excelWithImages.js";
@@ -13,41 +14,42 @@ dotenv.config();
 const app = express();
 
 /* ===============================
-   CORS (RENDER + DOWNLOAD)
+   🔐 MIDDLEWARES (ANTES DAS ROTAS)
 ================================ */
+
+// CORS (produção + dev)
 app.use(
   cors({
-    origin: "*",
+    origin: "*", // 🔥 em produção troque por seu domínio
     methods: ["GET", "POST", "PUT", "DELETE"],
     allowedHeaders: ["Content-Type", "Authorization"],
     exposedHeaders: ["Content-Disposition"],
   })
 );
 
-/* ===============================
-   CONFIGURAÇÕES BÁSICAS
-================================ */
+// JSON
 app.use(express.json());
 
 /* ===============================
-   PASTA PÚBLICA (UPLOADS)
+   📂 ARQUIVOS ESTÁTICOS
 ================================ */
 app.use("/uploads", express.static(path.join(path.resolve(), "uploads")));
 
 /* ===============================
-   ROTAS
+   🌐 ROTAS DA API
 ================================ */
+app.use("/api/auth", authRoutes);
 app.use("/api/imoveis", imoveisRoutes);
 app.use("/api/climate", climateRoutes);
 app.use("/api/excel", excelWithImagesRoutes);
 
 /* ===============================
-   HEALTH / PING
+   ❤️ HEALTH CHECK
 ================================ */
 app.get("/", (req, res) => {
   res.status(200).json({
     status: true,
-    message: "Servidor online e funcionando",
+    message: "Servidor online 🚀",
     timestamp: new Date().toISOString(),
   });
 });
@@ -62,7 +64,18 @@ app.get("/health", (req, res) => {
 });
 
 /* ===============================
-   MONGODB + START SERVER
+   ⚠️ TRATAMENTO DE ERROS GLOBAL
+================================ */
+app.use((err, req, res, next) => {
+  console.error("[ERRO GLOBAL]", err);
+
+  res.status(err.status || 500).json({
+    message: err.message || "Erro interno do servidor",
+  });
+});
+
+/* ===============================
+   🚀 CONEXÃO COM MONGODB
 ================================ */
 const PORT = process.env.PORT || 5000;
 const MONGO =
