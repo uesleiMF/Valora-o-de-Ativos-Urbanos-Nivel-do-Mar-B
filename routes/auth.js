@@ -1,50 +1,65 @@
 import express from "express";
-import User from "../models/User.js";   // ajuste o caminho se necessário
+import User from "../models/User.js";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 
 const router = express.Router();
+
+// 🔒 Emails permitidos (com proteção contra erro)
+const emailsPermitidos = (process.env.EMAILS_PERMITIDOS || "")
+  .split(",")
+  .map(e => e.toLowerCase().trim())
+  .filter(Boolean);
+
 
 // ==================== REGISTER ====================
 router.post("/register", async (req, res) => {
   try {
     const { nome, email, senha, usuario } = req.body;
 
-    // Validação flexível (aceita "nome" ou "usuario")
     const usuarioFinal = usuario || nome;
 
     if (!usuarioFinal || !email || !senha) {
-      return res.status(400).json({ 
-        message: "Preencha todos os campos (nome/usuario, email e senha)" 
+      return res.status(400).json({
+        message: "Preencha todos os campos"
       });
     }
 
     if (senha.length < 6) {
-      return res.status(400).json({ 
-        message: "Senha deve ter pelo menos 6 caracteres" 
+      return res.status(400).json({
+        message: "Senha deve ter pelo menos 6 caracteres"
       });
     }
 
-    // Verifica se já existe
-    const existingUser = await User.findOne({ 
-      $or: [{ email }, { usuario: usuarioFinal }] 
+    const emailNormalizado = email.toLowerCase().trim();
+
+    // 🔒 bloqueia cadastro
+    if (!emailsPermitidos.includes(emailNormalizado)) {
+      return res.status(403).json({
+        message: "Cadastro não permitido"
+      });
+    }
+
+    const existingUser = await User.findOne({
+      $or: [
+        { email: emailNormalizado },
+        { usuario: usuarioFinal }
+      ]
     });
 
     if (existingUser) {
-      return res.status(400).json({ 
-        message: "Email ou usuário já cadastrado" 
+      return res.status(400).json({
+        message: "Email ou usuário já cadastrado"
       });
     }
 
-    // 🔥 HASH DA SENHA (CORREÇÃO IMPORTANTE)
     const senhaHash = await bcrypt.hash(senha, 10);
 
-    // Cria o usuário
     const newUser = new User({
       usuario: usuarioFinal,
       nome: nome || usuarioFinal,
-      email,
-      senha: senhaHash, // ✅ agora criptografada
+      email: emailNormalizado,
+      senha: senhaHash,
     });
 
     await newUser.save();
@@ -55,13 +70,14 @@ router.post("/register", async (req, res) => {
         id: newUser._id,
         nome: newUser.nome,
         email: newUser.email,
-        usuario: newUser.usuario,
       }
     });
 
   } catch (error) {
     console.error("Erro no register:", error);
-    res.status(500).json({ message: "Erro interno ao cadastrar usuário" });
+    res.status(500).json({
+      message: "Erro no cadastro"
+    });
   }
 });
 
@@ -77,8 +93,16 @@ router.post("/login", async (req, res) => {
       });
     }
 
-    // 🔍 busca usuário
-    const user = await User.findOne({ email });
+    const emailNormalizado = email.toLowerCase().trim();
+
+    // 🔒 bloqueia login
+    if (!emailsPermitidos.includes(emailNormalizado)) {
+      return res.status(403).json({
+        message: "Acesso não autorizado"
+      });
+    }
+
+    const user = await User.findOne({ email: emailNormalizado });
 
     if (!user) {
       return res.status(404).json({
@@ -86,7 +110,6 @@ router.post("/login", async (req, res) => {
       });
     }
 
-    // 🔐 compara senha
     const senhaValida = await bcrypt.compare(senha, user.senha);
 
     if (!senhaValida) {
@@ -95,7 +118,6 @@ router.post("/login", async (req, res) => {
       });
     }
 
-    // 🎟️ gera token
     const token = jwt.sign(
       {
         id: user._id,
@@ -105,13 +127,11 @@ router.post("/login", async (req, res) => {
       { expiresIn: "7d" }
     );
 
-    // ✅ resposta
     res.json({
       user: {
         id: user._id,
         nome: user.nome,
         email: user.email,
-        usuario: user.usuario,
       },
       token
     });
@@ -119,7 +139,7 @@ router.post("/login", async (req, res) => {
   } catch (error) {
     console.error("Erro no login:", error);
     res.status(500).json({
-      message: "Erro interno no login"
+      message: "Erro no login"
     });
   }
 });
